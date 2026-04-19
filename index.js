@@ -11,31 +11,29 @@ const {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.GuildMembers
   ]
 });
 
 // ─────────────────────────────
-// SLASH COMMANDS (NO checklink)
+// SLASH COMMANDS
 // ─────────────────────────────
 
 const commands = [
-  new SlashCommandBuilder().setName("ping").setDescription("Check bot"),
+  new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
 
-  new SlashCommandBuilder().setName("help").setDescription("Commands"),
+  new SlashCommandBuilder().setName("help").setDescription("Show commands"),
 
   new SlashCommandBuilder()
     .setName("say")
     .setDescription("Bot sends message")
     .addStringOption(o =>
-      o.setName("message").setDescription("Text").setRequired(true)
+      o.setName("message").setDescription("Message").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("Ban user")
+    .setDescription("Ban a user")
     .addUserOption(o =>
       o.setName("user").setDescription("User").setRequired(true)
     )
@@ -50,12 +48,12 @@ const commands = [
       o.setName("user").setDescription("User").setRequired(true)
     )
     .addIntegerOption(o =>
-      o.setName("seconds").setDescription("Time").setRequired(true)
+      o.setName("seconds").setDescription("Duration").setRequired(true)
     )
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// READY + REGISTER COMMANDS
+// READY + REGISTER (GUILD COMMANDS = INSTANT)
 // ─────────────────────────────
 
 client.once("ready", async () => {
@@ -64,26 +62,20 @@ client.once("ready", async () => {
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   try {
-    // wipe old commands (fix duplicates)
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: [] }
-    );
-
-    // register fresh commands
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: commands }
-    );
-
-    console.log("Slash commands registered cleanly");
+    for (const guild of client.guilds.cache.values()) {
+      await rest.put(
+        Routes.applicationGuildCommands(client.user.id, guild.id),
+        { body: commands }
+      );
+      console.log(`Commands registered in guild: ${guild.name}`);
+    }
   } catch (err) {
     console.error(err);
   }
 });
 
 // ─────────────────────────────
-// INTERACTIONS
+// INTERACTION HANDLER
 // ─────────────────────────────
 
 client.on("interactionCreate", async (interaction) => {
@@ -101,21 +93,22 @@ client.on("interactionCreate", async (interaction) => {
       const embed = new EmbedBuilder()
         .setTitle("Commands")
         .setColor(0x5865F2)
-        .setDescription("/ping /help /say /ban /tempban");
+        .setDescription(
+          "/ping\n/help\n/say\n/ban\n/tempban"
+        );
 
       return interaction.reply({ embeds: [embed] });
     }
 
-    // 📢 say (FIXED SYNTAX ERROR)
+    // 📢 say
     if (interaction.commandName === "say") {
       if (interaction.guild.ownerId !== interaction.user.id) {
-        return interaction.reply({ content: "Owner only", ephemeral: true });
+        return interaction.reply({ content: "Owner only command", ephemeral: true });
       }
 
       const msg = interaction.options.getString("message");
 
-      await interaction.reply({ content: "Sent", ephemeral: true });
-
+      await interaction.reply({ content: "Sent!", ephemeral: true });
       return interaction.channel.send(msg);
     }
 
@@ -135,7 +128,7 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       if (!member.bannable) {
-        return interaction.reply({ content: "Can't ban this user", ephemeral: true });
+        return interaction.reply({ content: "I can't ban this user", ephemeral: true });
       }
 
       await member.ban({ reason });
@@ -172,26 +165,6 @@ client.on("interactionCreate", async (interaction) => {
     if (!interaction.replied) {
       interaction.reply({ content: "Error occurred", ephemeral: true });
     }
-  }
-});
-
-// ─────────────────────────────
-// AUTO MODERATION
-// ─────────────────────────────
-
-const badWords = ["badword1", "badword2"];
-
-client.on("messageCreate", (message) => {
-  if (message.author.bot) return;
-
-  if (badWords.some(w => message.content.toLowerCase().includes(w))) {
-    message.delete();
-    message.channel.send(`${message.author}, no bad words.`);
-  }
-
-  if (message.content.includes("http")) {
-    message.delete();
-    message.channel.send(`${message.author}, links are not allowed.`);
   }
 });
 
