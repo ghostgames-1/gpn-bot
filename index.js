@@ -1,35 +1,47 @@
 const {
   Client,
   GatewayIntentBits,
-  EmbedBuilder,
   REST,
   Routes,
   SlashCommandBuilder,
-  PermissionsBitField,
-  MessageFlags
+  EmbedBuilder,
+  PermissionsBitField
 } = require("discord.js");
 
-// ─────────────────────────────
-// CLIENT
-// ─────────────────────────────
-
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
-  ]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
 
 // ─────────────────────────────
-// SLASH COMMANDS
+// COMMANDS
 // ─────────────────────────────
 
 const commands = [
+  new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
+
+  new SlashCommandBuilder().setName("help").setDescription("List commands"),
+
+  new SlashCommandBuilder()
+    .setName("say")
+    .setDescription("Make the bot say something (owner only)")
+    .addStringOption(option =>
+      option.setName("message")
+        .setDescription("Message to send")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("checklink")
+    .setDescription("Check a URL")
+    .addStringOption(option =>
+      option.setName("url")
+        .setDescription("Website (example: google.com)")
+        .setRequired(true)
+    ),
+
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("Ban a user from the server")
+    .setDescription("Ban a user")
     .addUserOption(option =>
       option.setName("user")
         .setDescription("User to ban")
@@ -37,14 +49,16 @@ const commands = [
     )
     .addStringOption(option =>
       option.setName("reason")
-        .setDescription("Reason for ban")
+        .setDescription("Reason")
         .setRequired(false)
     )
-    .toJSON()
-];
+].map(cmd => cmd.toJSON());
 
-// register slash commands
-client.once("ready", async () => {
+// ─────────────────────────────
+// READY + REGISTER
+// ─────────────────────────────
+
+client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
@@ -54,133 +68,93 @@ client.once("ready", async () => {
       Routes.applicationCommands(client.user.id),
       { body: commands }
     );
-    console.log("Slash commands registered!");
+    console.log("Slash commands registered");
   } catch (err) {
     console.error(err);
   }
 });
 
 // ─────────────────────────────
-// BAN COMMAND
+// COMMAND HANDLER
 // ─────────────────────────────
 
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === "ban") {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-      return interaction.reply({ content: "No permission.", ephemeral: true });
-    }
-
-    const user = interaction.options.getUser("user");
-    const reason = interaction.options.getString("reason") || "No reason provided";
-
-    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-
-    if (!member) {
-      return interaction.reply({ content: "User not found.", ephemeral: true });
-    }
-
-    if (!member.bannable) {
-      return interaction.reply({ content: "I can't ban this user.", ephemeral: true });
-    }
-
-    await member.ban({ reason });
-
-    return interaction.reply(`🔨 Banned ${user.tag} | Reason: ${reason}`);
-  }
-});
-
-// ─────────────────────────────
-// YOUR PREFIX COMMANDS SYSTEM
-// ─────────────────────────────
-
-function normalizeUrl(input) {
   try {
-    input = input.trim();
-    if (input.startsWith("<") && input.endsWith(">")) input = input.slice(1, -1);
 
-    const mdMatch = input.match(/\[.*?\]\((.+?)\)/);
-    if (mdMatch) input = mdMatch[1];
-
-    if (!/^https?:\/\//i.test(input)) input = "https://" + input;
-
-    const parsed = new URL(input);
-
-    if (!parsed.hostname || !parsed.hostname.includes(".")) return null;
-
-    const hostname = parsed.hostname.replace(/^www\./, "");
-
-    return { full: input, hostname };
-  } catch {
-    return null;
-  }
-}
-
-// simple prefix system
-client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
-
-  const prefix = "!";
-  if (!message.content.startsWith(prefix)) return;
-
-  const args = message.content.slice(prefix.length).trim().split(/ +/);
-  const cmd = args.shift().toLowerCase();
-
-  // ─── ping
-  if (cmd === "ping") {
-    return message.reply("🏓 Pong!");
-  }
-
-  // ─── help
-  if (cmd === "help") {
-    const embed = new EmbedBuilder()
-      .setTitle("Commands")
-      .setColor(0x5865F2)
-      .addFields(
-        { name: "!ping", value: "Check bot latency" },
-        { name: "!say", value: "Make bot send a message (owner only)" },
-        { name: "!checklink", value: "Check a URL" }
-      );
-
-    return message.reply({ embeds: [embed] });
-  }
-
-  // ─── say
-  if (cmd === "say") {
-    if (message.guild.ownerId !== message.author.id)
-      return message.reply("Only owner can use this.");
-
-    const text = args.join(" ");
-    return message.channel.send(text);
-  }
-
-  // ─── checklink (simplified version of yours)
-  if (cmd === "checklink") {
-    const input = args.join(" ");
-    const parsed = normalizeUrl(input);
-
-    if (!parsed) {
-      return message.reply("Invalid URL.");
+    // 🏓 ping
+    if (interaction.commandName === "ping") {
+      return interaction.reply("🏓 Pong!");
     }
 
-    return message.reply(`Checked: ${parsed.hostname}`);
-  }
+    // 📋 help
+    if (interaction.commandName === "help") {
+      const embed = new EmbedBuilder()
+        .setTitle("Commands")
+        .setColor(0x5865F2)
+        .addFields(
+          { name: "/ping", value: "Check bot", inline: false },
+          { name: "/say", value: "Bot sends message", inline: false },
+          { name: "/checklink", value: "Check a URL", inline: false },
+          { name: "/ban", value: "Ban a user", inline: false }
+        );
 
-  // ─── ban (prefix version too if you want)
-  if (cmd === "ban") {
-    if (!message.member.permissions.has("BanMembers"))
-      return message.reply("No permission.");
+      return interaction.reply({ embeds: [embed] });
+    }
 
-    const user = message.mentions.members.first();
-    if (!user) return message.reply("Mention a user.");
+    // 📢 say
+    if (interaction.commandName === "say") {
+      if (interaction.guild.ownerId !== interaction.user.id) {
+        return interaction.reply({ content: "Only server owner can use this.", ephemeral: true });
+      }
 
-    if (!user.bannable) return message.reply("Can't ban this user.");
+      const msg = interaction.options.getString("message");
 
-    const reason = args.slice(1).join(" ") || "No reason";
+      await interaction.reply({ content: "Sent!", ephemeral: true });
+      return interaction.channel.send(msg);
+    }
 
-    await user.ban({ reason });
-    return message.reply(`Banned ${user.user.tag}`);
+    // 🔗 checklink
+    if (interaction.commandName === "checklink") {
+      const url = interaction.options.getString("url");
+
+      if (!url.includes(".")) {
+        return interaction.reply({ content: "Invalid URL.", ephemeral: true });
+      }
+
+      return interaction.reply(`🔍 Checked: **${url}**`);
+    }
+
+    // 🔨 ban
+    if (interaction.commandName === "ban") {
+      if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+        return interaction.reply({ content: "No permission.", ephemeral: true });
+      }
+
+      const user = interaction.options.getUser("user");
+      const reason = interaction.options.getString("reason") || "No reason";
+
+      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+
+      if (!member) {
+        return interaction.reply({ content: "User not found.", ephemeral: true });
+      }
+
+      if (!member.bannable) {
+        return interaction.reply({ content: "I can't ban this user.", ephemeral: true });
+      }
+
+      await member.ban({ reason });
+
+      return interaction.reply(`🔨 Banned ${user.tag} | ${reason}`);
+    }
+
+  } catch (err) {
+    console.error(err);
+    if (!interaction.replied) {
+      interaction.reply({ content: "Error occurred.", ephemeral: true });
+    }
   }
 });
 
