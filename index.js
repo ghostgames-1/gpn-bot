@@ -58,23 +58,39 @@ const commands = [
 // ─────────────────────────────
 // READY + SAFE GUILD COMMAND REG
 // ─────────────────────────────
-
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   try {
-    // wait for guild cache to fully load
     await new Promise(r => setTimeout(r, 2000));
 
     const guilds = client.guilds.cache;
 
-    if (!guilds || guilds.size === 0) {
-      console.log("No guilds found yet, skipping registration");
-      return;
+    // ─────────────────────────────
+    // 1. WIPE GLOBAL COMMANDS (IMPORTANT)
+    // ─────────────────────────────
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: [] }
+    );
+
+    // ─────────────────────────────
+    // 2. WIPE ALL GUILD COMMANDS (IMPORTANT)
+    // ─────────────────────────────
+    for (const guild of guilds.values()) {
+      await rest.put(
+        Routes.applicationGuildCommands(client.user.id, guild.id),
+        { body: [] }
+      );
     }
 
+    console.log("Old commands cleared");
+
+    // ─────────────────────────────
+    // 3. REGISTER CLEAN GUILD COMMANDS ONLY
+    // ─────────────────────────────
     for (const guild of guilds.values()) {
       await rest.put(
         Routes.applicationGuildCommands(client.user.id, guild.id),
@@ -84,12 +100,11 @@ client.once("ready", async () => {
       console.log(`Commands registered in: ${guild.name}`);
     }
 
-    console.log("All commands registered successfully");
+    console.log("All commands fully synced (no duplicates)");
   } catch (err) {
-    console.error("Command registration error:", err);
+    console.error("Command sync error:", err);
   }
 });
-
 // ─────────────────────────────
 // INTERACTIONS
 // ─────────────────────────────
