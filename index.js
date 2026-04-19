@@ -1,3 +1,6 @@
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
+
 const {
   Client,
   GatewayIntentBits,
@@ -53,7 +56,7 @@ const commands = [
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// READY + REGISTER (GUILD COMMANDS = INSTANT)
+// READY + SAFE GUILD COMMAND REG
 // ─────────────────────────────
 
 client.once("ready", async () => {
@@ -62,20 +65,33 @@ client.once("ready", async () => {
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   try {
-    for (const guild of client.guilds.cache.values()) {
+    // wait for guild cache to fully load
+    await new Promise(r => setTimeout(r, 2000));
+
+    const guilds = client.guilds.cache;
+
+    if (!guilds || guilds.size === 0) {
+      console.log("No guilds found yet, skipping registration");
+      return;
+    }
+
+    for (const guild of guilds.values()) {
       await rest.put(
         Routes.applicationGuildCommands(client.user.id, guild.id),
         { body: commands }
       );
-      console.log(`Commands registered in guild: ${guild.name}`);
+
+      console.log(`Commands registered in: ${guild.name}`);
     }
+
+    console.log("All commands registered successfully");
   } catch (err) {
-    console.error(err);
+    console.error("Command registration error:", err);
   }
 });
 
 // ─────────────────────────────
-// INTERACTION HANDLER
+// INTERACTIONS
 // ─────────────────────────────
 
 client.on("interactionCreate", async (interaction) => {
@@ -93,9 +109,7 @@ client.on("interactionCreate", async (interaction) => {
       const embed = new EmbedBuilder()
         .setTitle("Commands")
         .setColor(0x5865F2)
-        .setDescription(
-          "/ping\n/help\n/say\n/ban\n/tempban"
-        );
+        .setDescription("/ping\n/help\n/say\n/ban\n/tempban");
 
       return interaction.reply({ embeds: [embed] });
     }
