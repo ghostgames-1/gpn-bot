@@ -374,8 +374,20 @@ const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Permission
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
+const { 
+  Client, 
+  GatewayIntentBits, 
+  REST, 
+  Routes, 
+  SlashCommandBuilder, 
+  PermissionsBitField 
+} = require("discord.js");
 
-// Slash command
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+});
+
+// Slash command setup
 const commands = [
   new SlashCommandBuilder()
     .setName("ban")
@@ -387,36 +399,40 @@ const commands = [
     )
     .addStringOption(option =>
       option.setName("reason")
-        .setDescription("Reason for ban")
+        .setDescription("Reason for the ban")
         .setRequired(false)
     )
     .toJSON()
 ];
 
-// Register command
-const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
-
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
+  const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+
   try {
+    // IMPORTANT FIX: use client.application.id (NOT client.user.id)
     await rest.put(
-      Routes.applicationCommands(client.user.id),
+      Routes.applicationCommands(client.application.id),
       { body: commands }
     );
-    console.log("Slash command registered");
+
+    console.log("Slash commands registered!");
   } catch (err) {
-    console.error(err);
+    console.error("Command registration error:", err);
   }
 });
 
-// Handle command
+// Handle slash command
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "ban") {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-      return interaction.reply({ content: "You don't have permission to ban members.", ephemeral: true });
+      return interaction.reply({ 
+        content: "You don't have permission to ban members.", 
+        ephemeral: true 
+      });
     }
 
     const user = interaction.options.getUser("user");
@@ -425,14 +441,21 @@ client.on("interactionCreate", async (interaction) => {
     const member = await interaction.guild.members.fetch(user.id).catch(() => null);
 
     if (!member) {
-      return interaction.reply({ content: "User not found in this server.", ephemeral: true });
+      return interaction.reply({ 
+        content: "User not found in this server.", 
+        ephemeral: true 
+      });
     }
 
     if (!member.bannable) {
-      return interaction.reply({ content: "I can't ban this user (role hierarchy issue).", ephemeral: true });
+      return interaction.reply({ 
+        content: "I can't ban this user (role hierarchy issue).", 
+        ephemeral: true 
+      });
     }
 
     await member.ban({ reason });
+
     return interaction.reply(`🔨 Banned ${user.tag} | Reason: ${reason}`);
   }
 });
