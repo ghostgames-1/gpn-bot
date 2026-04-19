@@ -369,3 +369,72 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.login(process.env.TOKEN);
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionsBitField } = require("discord.js");
+
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+});
+
+// Slash command
+const commands = [
+  new SlashCommandBuilder()
+    .setName("ban")
+    .setDescription("Ban a user from the server")
+    .addUserOption(option =>
+      option.setName("user")
+        .setDescription("User to ban")
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName("reason")
+        .setDescription("Reason for ban")
+        .setRequired(false)
+    )
+    .toJSON()
+];
+
+// Register command
+const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+
+client.once("ready", async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+
+  try {
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: commands }
+    );
+    console.log("Slash command registered");
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+// Handle command
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "ban") {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+      return interaction.reply({ content: "You don't have permission to ban members.", ephemeral: true });
+    }
+
+    const user = interaction.options.getUser("user");
+    const reason = interaction.options.getString("reason") || "No reason provided";
+
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+
+    if (!member) {
+      return interaction.reply({ content: "User not found in this server.", ephemeral: true });
+    }
+
+    if (!member.bannable) {
+      return interaction.reply({ content: "I can't ban this user (role hierarchy issue).", ephemeral: true });
+    }
+
+    await member.ban({ reason });
+    return interaction.reply(`🔨 Banned ${user.tag} | Reason: ${reason}`);
+  }
+});
+
+client.login(process.env.DISCORD_TOKEN);
