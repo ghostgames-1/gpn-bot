@@ -1,3 +1,6 @@
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
+
 const {
   Client,
   GatewayIntentBits,
@@ -19,80 +22,51 @@ const client = new Client({
   ]
 });
 
-// ─────────────────────────────
-// STORAGE
-// ─────────────────────────────
-
 const welcomeSettings = new Map();
 const leaveSettings = new Map();
-const tempBans = new Map();
 
 // ─────────────────────────────
 // COMMANDS
 // ─────────────────────────────
 
 const commands = [
-
   new SlashCommandBuilder().setName("ping").setDescription("Check bot"),
-
   new SlashCommandBuilder().setName("help").setDescription("Show commands"),
 
   new SlashCommandBuilder()
     .setName("say")
     .setDescription("Send message")
-    .addStringOption(o =>
-      o.setName("message").setRequired(true).setDescription("Message")
-    ),
+    .addStringOption(o => o.setName("message").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("kick")
     .setDescription("Kick user")
-    .addUserOption(o =>
-      o.setName("user").setRequired(true).setDescription("User")
-    ),
+    .addUserOption(o => o.setName("user").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("ban")
     .setDescription("Ban user")
-    .addUserOption(o =>
-      o.setName("user").setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason").setDescription("Reason")
-    ),
+    .addUserOption(o => o.setName("user").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("tempban")
-    .setDescription("Temp ban user")
-    .addUserOption(o =>
-      o.setName("user").setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName("seconds").setRequired(true)
-    ),
+    .setDescription("Temp ban")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addIntegerOption(o => o.setName("seconds").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("timeout")
     .setDescription("Timeout user")
-    .addUserOption(o =>
-      o.setName("user").setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName("minutes").setRequired(true)
-    ),
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addIntegerOption(o => o.setName("minutes").setRequired(true)),
 
-  new SlashCommandBuilder()
-    .setName("welcome-setup")
-    .setDescription("Setup welcome system"),
-
-  new SlashCommandBuilder()
-    .setName("goodbye-setup")
-    .setDescription("Setup leave system")
+  new SlashCommandBuilder().setName("welcome-setup").setDescription("Setup welcome"),
+  new SlashCommandBuilder().setName("goodbye-setup").setDescription("Setup goodbye")
 
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// READY + CLEAN REGISTER
+// READY
 // ─────────────────────────────
 
 client.once("clientReady", async () => {
@@ -112,79 +86,81 @@ client.once("clientReady", async () => {
     }
 
   } catch (err) {
-    console.error(err);
+    console.error("REGISTER ERROR:", err);
   }
 });
 
 // ─────────────────────────────
-// INTERACTIONS
+// SINGLE INTERACTION HANDLER
 // ─────────────────────────────
 
 client.on("interactionCreate", async (interaction) => {
+
+  // BUTTONS
+  if (interaction.isButton()) {
+    const id = interaction.guild?.id;
+    if (!id) return;
+
+    if (interaction.customId === "w_on") {
+      welcomeSettings.set(id, interaction.channel.id);
+      return interaction.reply({ content: "Welcome enabled", ephemeral: true });
+    }
+
+    if (interaction.customId === "w_off") {
+      welcomeSettings.delete(id);
+      return interaction.reply({ content: "Welcome disabled", ephemeral: true });
+    }
+
+    if (interaction.customId === "g_on") {
+      leaveSettings.set(id, interaction.channel.id);
+      return interaction.reply({ content: "Goodbye enabled", ephemeral: true });
+    }
+
+    if (interaction.customId === "g_off") {
+      leaveSettings.delete(id);
+      return interaction.reply({ content: "Goodbye disabled", ephemeral: true });
+    }
+  }
+
+  // SLASH COMMANDS
   if (!interaction.isChatInputCommand()) return;
 
   try {
 
-    // 🏓 ping
     if (interaction.commandName === "ping") {
       return interaction.reply("🏓 Pong!");
     }
 
-    // 📋 help
     if (interaction.commandName === "help") {
-      return interaction.reply({
-        content:
-`/ping
-/help
-/say
-/kick
-/ban
-/tempban
-/timeout
-/welcome-setup
-/goodbye-setup`
-      });
+      return interaction.reply("/ping /help /say /kick /ban /tempban /timeout /welcome-setup /goodbye-setup");
     }
 
-    // 📢 say
     if (interaction.commandName === "say") {
-      const msg = interaction.options.getString("message");
-      return interaction.reply(msg);
+      return interaction.reply(interaction.options.getString("message"));
     }
 
-    // 👢 kick
     if (interaction.commandName === "kick") {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
+      if (!interaction.member?.permissions.has(PermissionsBitField.Flags.KickMembers))
         return interaction.reply({ content: "No permission", ephemeral: true });
-      }
 
-      const user = interaction.options.getUser("user");
-      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-
+      const member = await interaction.guild.members.fetch(interaction.options.getUser("user").id).catch(() => null);
       if (!member) return interaction.reply({ content: "User not found", ephemeral: true });
 
       await member.kick();
-      return interaction.reply(`👢 Kicked ${user.tag}`);
+      return interaction.reply("User kicked");
     }
 
-    // 🔨 ban
     if (interaction.commandName === "ban") {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+      if (!interaction.member?.permissions.has(PermissionsBitField.Flags.BanMembers))
         return interaction.reply({ content: "No permission", ephemeral: true });
-      }
 
-      const user = interaction.options.getUser("user");
-      const reason = interaction.options.getString("reason") || "No reason";
-
-      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-
+      const member = await interaction.guild.members.fetch(interaction.options.getUser("user").id).catch(() => null);
       if (!member) return interaction.reply({ content: "User not found", ephemeral: true });
 
-      await member.ban({ reason });
-      return interaction.reply(`🔨 Banned ${user.tag}`);
+      await member.ban();
+      return interaction.reply("User banned");
     }
 
-    // ⏳ tempban
     if (interaction.commandName === "tempban") {
       const user = interaction.options.getUser("user");
       const seconds = interaction.options.getInteger("seconds");
@@ -194,23 +170,14 @@ client.on("interactionCreate", async (interaction) => {
 
       await member.ban();
 
-      tempBans.set(user.id, Date.now() + seconds * 1000);
-
-      setTimeout(async () => {
-        try {
-          await interaction.guild.members.unban(user.id);
-        } catch {}
+      setTimeout(() => {
+        interaction.guild.members.unban(user.id).catch(() => {});
       }, seconds * 1000);
 
-      return interaction.reply(`⏳ Temp banned ${user.tag} for ${seconds}s`);
+      return interaction.reply(`Temp banned for ${seconds}s`);
     }
 
-    // ⏳ timeout
     if (interaction.commandName === "timeout") {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-        return interaction.reply({ content: "No permission", ephemeral: true });
-      }
-
       const user = interaction.options.getUser("user");
       const minutes = interaction.options.getInteger("minutes");
 
@@ -218,36 +185,25 @@ client.on("interactionCreate", async (interaction) => {
       if (!member) return interaction.reply({ content: "User not found", ephemeral: true });
 
       await member.timeout(minutes * 60000);
-
-      return interaction.reply(`⏳ Timed out ${user.tag} for ${minutes} minutes`);
+      return interaction.reply(`Timed out for ${minutes} minutes`);
     }
 
-    // 👋 welcome panel
     if (interaction.commandName === "welcome-setup") {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("w_on").setLabel("Enable").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId("w_off").setLabel("Disable").setStyle(ButtonStyle.Danger)
       );
 
-      return interaction.reply({
-        content: "Welcome System",
-        components: [row],
-        ephemeral: true
-      });
+      return interaction.reply({ content: "Welcome Panel", components: [row], ephemeral: true });
     }
 
-    // 👋 goodbye panel
     if (interaction.commandName === "goodbye-setup") {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId("g_on").setLabel("Enable").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId("g_off").setLabel("Disable").setStyle(ButtonStyle.Danger)
       );
 
-      return interaction.reply({
-        content: "Goodbye System",
-        components: [row],
-        ephemeral: true
-      });
+      return interaction.reply({ content: "Goodbye Panel", components: [row], ephemeral: true });
     }
 
   } catch (err) {
@@ -259,37 +215,7 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // ─────────────────────────────
-// BUTTONS
-// ─────────────────────────────
-
-client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isButton()) return;
-
-  const id = interaction.guild.id;
-
-  if (interaction.customId === "w_on") {
-    welcomeSettings.set(id, interaction.channel.id);
-    return interaction.reply({ content: "Welcome enabled", ephemeral: true });
-  }
-
-  if (interaction.customId === "w_off") {
-    welcomeSettings.delete(id);
-    return interaction.reply({ content: "Welcome disabled", ephemeral: true });
-  }
-
-  if (interaction.customId === "g_on") {
-    leaveSettings.set(id, interaction.channel.id);
-    return interaction.reply({ content: "Goodbye enabled", ephemeral: true });
-  }
-
-  if (interaction.customId === "g_off") {
-    leaveSettings.delete(id);
-    return interaction.reply({ content: "Goodbye disabled", ephemeral: true });
-  }
-});
-
-// ─────────────────────────────
-// JOIN / LEAVE EVENTS
+// JOIN / LEAVE
 // ─────────────────────────────
 
 client.on("guildMemberAdd", member => {
@@ -297,14 +223,9 @@ client.on("guildMemberAdd", member => {
   if (!ch) return;
 
   const channel = member.guild.channels.cache.get(ch);
+  if (!channel) return;
 
-  const embed = new EmbedBuilder()
-    .setTitle("Welcome!")
-    .setDescription(`Welcome <@${member.id}>`)
-    .setThumbnail(member.user.displayAvatarURL())
-    .setColor(0x57F287);
-
-  channel.send({ embeds: [embed] });
+  channel.send(`Welcome <@${member.id}>`).catch(() => {});
 });
 
 client.on("guildMemberRemove", member => {
@@ -312,18 +233,18 @@ client.on("guildMemberRemove", member => {
   if (!ch) return;
 
   const channel = member.guild.channels.cache.get(ch);
+  if (!channel) return;
 
-  const embed = new EmbedBuilder()
-    .setTitle("Goodbye!")
-    .setDescription(`${member.user.tag} left`)
-    .setThumbnail(member.user.displayAvatarURL())
-    .setColor(0xED4245);
-
-  channel.send({ embeds: [embed] });
+  channel.send(`${member.user.tag} left`).catch(() => {});
 });
 
 // ─────────────────────────────
 // LOGIN
 // ─────────────────────────────
+
+if (!process.env.TOKEN) {
+  console.error("❌ TOKEN missing");
+  process.exit(1);
+}
 
 client.login(process.env.TOKEN);
