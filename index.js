@@ -20,58 +20,97 @@ const client = new Client({
   ]
 });
 
+// ─────────────────────────────
+// STORAGE
+// ─────────────────────────────
+
 const welcomeSettings = new Map();
 const leaveSettings = new Map();
 
+// ─────────────────────────────
+// COMMANDS (CLEAN + FIXED)
+// ─────────────────────────────
+
 const commands = [
-  new SlashCommandBuilder().setName("ping").setDescription("Check bot"),
+  new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
+
   new SlashCommandBuilder().setName("help").setDescription("Show commands"),
 
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("Say a message")
-    .addStringOption(o => o.setName("message").setDescription("Message").setRequired(true)),
+    .setDescription("Send a message")
+    .addStringOption(o =>
+      o.setName("message").setDescription("Message").setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("kick")
     .setDescription("Kick a user")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true)),
+    .addUserOption(o =>
+      o.setName("user").setDescription("User").setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("ban")
     .setDescription("Ban a user")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true)),
+    .addUserOption(o =>
+      o.setName("user").setDescription("User").setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("timeout")
     .setDescription("Timeout a user")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
-    .addIntegerOption(o => o.setName("minutes").setDescription("Minutes").setRequired(true)),
+    .addUserOption(o =>
+      o.setName("user").setDescription("User").setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName("minutes").setDescription("Minutes").setRequired(true)
+    ),
 
-  new SlashCommandBuilder().setName("welcome-setup").setDescription("Setup welcome messages"),
-  new SlashCommandBuilder().setName("goodbye-setup").setDescription("Setup goodbye messages")
+  new SlashCommandBuilder()
+    .setName("welcome-setup")
+    .setDescription("Setup welcome system"),
 
+  new SlashCommandBuilder()
+    .setName("goodbye-setup")
+    .setDescription("Setup goodbye system")
 ].map(c => c.toJSON());
+
+// ─────────────────────────────
+// REGISTER COMMANDS (FIXED FOR DUPLICATES)
+// ─────────────────────────────
 
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-  for (const guild of client.guilds.cache.values()) {
-    try {
-      await rest.put(
-        Routes.applicationGuildCommands(client.user.id, guild.id),
-        { body: commands }
-      );
-      console.log(`Synced: ${guild.name}`);
-    } catch (err) {
-      console.error(`Failed to sync ${guild.name}`, err);
-    }
+  try {
+    // IMPORTANT FIX: clear old commands FIRST
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: [] }
+    );
+
+    // register fresh commands
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: commands }
+    );
+
+    console.log("Slash commands synced cleanly");
+  } catch (err) {
+    console.error(err);
   }
 });
 
-client.on("interactionCreate", async interaction => {
+// ─────────────────────────────
+// INTERACTIONS
+// ─────────────────────────────
+
+client.on("interactionCreate", async (interaction) => {
+
+  // BUTTONS
   if (interaction.isButton()) {
     const id = interaction.guild?.id;
     if (!id) return;
@@ -99,62 +138,88 @@ client.on("interactionCreate", async interaction => {
 
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === "ping") {
+  const { commandName } = interaction;
+
+  // ── ping
+  if (commandName === "ping") {
     return interaction.reply("🏓 Pong!");
   }
 
-  if (interaction.commandName === "help") {
+  // ── help
+  if (commandName === "help") {
     return interaction.reply("/ping /help /say /kick /ban /timeout /welcome-setup /goodbye-setup");
   }
 
-  if (interaction.commandName === "say") {
-    return interaction.reply(interaction.options.getString("message"));
+  // ── say
+  if (commandName === "say") {
+    const msg = interaction.options.getString("message");
+    return interaction.reply(msg);
   }
 
-  if (interaction.commandName === "kick") {
+  // ── kick
+  if (commandName === "kick") {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers))
       return interaction.reply({ content: "No permission", ephemeral: true });
 
-    const member = await interaction.guild.members.fetch(interaction.options.getUser("user").id);
+    const user = interaction.options.getUser("user");
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+
+    if (!member) return interaction.reply("User not found");
+
     await member.kick();
     return interaction.reply("User kicked");
   }
 
-  if (interaction.commandName === "ban") {
+  // ── ban
+  if (commandName === "ban") {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers))
       return interaction.reply({ content: "No permission", ephemeral: true });
 
-    const member = await interaction.guild.members.fetch(interaction.options.getUser("user").id);
+    const user = interaction.options.getUser("user");
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+
+    if (!member) return interaction.reply("User not found");
+
     await member.ban();
     return interaction.reply("User banned");
   }
 
-  if (interaction.commandName === "timeout") {
-    const member = await interaction.guild.members.fetch(interaction.options.getUser("user").id);
+  // ── timeout
+  if (commandName === "timeout") {
+    const user = interaction.options.getUser("user");
     const minutes = interaction.options.getInteger("minutes");
 
+    const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+    if (!member) return interaction.reply("User not found");
+
     await member.timeout(minutes * 60000);
-    return interaction.reply(`Timed out for ${minutes} minutes`);
+    return interaction.reply(`Timed out ${minutes} minutes`);
   }
 
-  if (interaction.commandName === "welcome-setup") {
+  // ── welcome panel
+  if (commandName === "welcome-setup") {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId("w_on").setLabel("Enable").setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId("w_off").setLabel("Disable").setStyle(ButtonStyle.Danger)
     );
 
-    return interaction.reply({ content: "Welcome Panel", components: [row], ephemeral: true });
+    return interaction.reply({ content: "Welcome system", components: [row], ephemeral: true });
   }
 
-  if (interaction.commandName === "goodbye-setup") {
+  // ── goodbye panel
+  if (commandName === "goodbye-setup") {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId("g_on").setLabel("Enable").setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId("g_off").setLabel("Disable").setStyle(ButtonStyle.Danger)
     );
 
-    return interaction.reply({ content: "Goodbye Panel", components: [row], ephemeral: true });
+    return interaction.reply({ content: "Goodbye system", components: [row], ephemeral: true });
   }
 });
+
+// ─────────────────────────────
+// EVENTS
+// ─────────────────────────────
 
 client.on("guildMemberAdd", member => {
   const ch = welcomeSettings.get(member.guild.id);
@@ -168,8 +233,12 @@ client.on("guildMemberRemove", member => {
   member.guild.channels.cache.get(ch)?.send(`${member.user.tag} left`);
 });
 
+// ─────────────────────────────
+// LOGIN SAFETY
+// ─────────────────────────────
+
 if (!process.env.TOKEN) {
-  console.error("❌ TOKEN missing");
+  console.error("Missing TOKEN");
   process.exit(1);
 }
 
