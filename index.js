@@ -23,51 +23,55 @@ const client = new Client({
 const welcomeSettings = new Map();
 const leaveSettings = new Map();
 
-// COMMANDS
 const commands = [
   new SlashCommandBuilder().setName("ping").setDescription("Check bot"),
   new SlashCommandBuilder().setName("help").setDescription("Show commands"),
 
   new SlashCommandBuilder()
     .setName("say")
-    .addStringOption(o => o.setName("message").setRequired(true)),
+    .setDescription("Say a message")
+    .addStringOption(o => o.setName("message").setDescription("Message").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("kick")
-    .addUserOption(o => o.setName("user").setRequired(true)),
+    .setDescription("Kick a user")
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("ban")
-    .addUserOption(o => o.setName("user").setRequired(true)),
+    .setDescription("Ban a user")
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("timeout")
-    .addUserOption(o => o.setName("user").setRequired(true))
-    .addIntegerOption(o => o.setName("minutes").setRequired(true)),
+    .setDescription("Timeout a user")
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+    .addIntegerOption(o => o.setName("minutes").setDescription("Minutes").setRequired(true)),
 
-  new SlashCommandBuilder().setName("welcome-setup"),
-  new SlashCommandBuilder().setName("goodbye-setup")
+  new SlashCommandBuilder().setName("welcome-setup").setDescription("Setup welcome messages"),
+  new SlashCommandBuilder().setName("goodbye-setup").setDescription("Setup goodbye messages")
 
 ].map(c => c.toJSON());
 
-// READY
-client.once("clientReady", async () => {
+client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   for (const guild of client.guilds.cache.values()) {
-    await rest.put(
-      Routes.applicationGuildCommands(client.user.id, guild.id),
-      { body: commands }
-    );
-    console.log(`Synced: ${guild.name}`);
+    try {
+      await rest.put(
+        Routes.applicationGuildCommands(client.user.id, guild.id),
+        { body: commands }
+      );
+      console.log(`Synced: ${guild.name}`);
+    } catch (err) {
+      console.error(`Failed to sync ${guild.name}`, err);
+    }
   }
 });
 
-// INTERACTIONS
-client.on("interactionCreate", async (interaction) => {
-
+client.on("interactionCreate", async interaction => {
   if (interaction.isButton()) {
     const id = interaction.guild?.id;
     if (!id) return;
@@ -152,7 +156,6 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-// JOIN / LEAVE
 client.on("guildMemberAdd", member => {
   const ch = welcomeSettings.get(member.guild.id);
   if (!ch) return;
@@ -165,7 +168,6 @@ client.on("guildMemberRemove", member => {
   member.guild.channels.cache.get(ch)?.send(`${member.user.tag} left`);
 });
 
-// LOGIN
 if (!process.env.TOKEN) {
   console.error("❌ TOKEN missing");
   process.exit(1);
