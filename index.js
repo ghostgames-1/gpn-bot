@@ -8,73 +8,44 @@ const {
   Routes,
   SlashCommandBuilder,
   EmbedBuilder,
-  PermissionsBitField
+  PermissionsBitField,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require("discord.js");
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildModeration
+    GatewayIntentBits.GuildMembers
   ]
 });
 
 // ─────────────────────────────
-// SLASH COMMANDS
+// STORAGE (simple memory)
+// ─────────────────────────────
+
+const welcomeSettings = new Map();
+const leaveSettings = new Map();
+
+// ─────────────────────────────
+// COMMANDS
 // ─────────────────────────────
 
 const commands = [
-  new SlashCommandBuilder().setName("ping").setDescription("Bot check"),
-  new SlashCommandBuilder().setName("help").setDescription("Commands list"),
+  new SlashCommandBuilder().setName("ping").setDescription("Check bot"),
 
   new SlashCommandBuilder()
-    .setName("kick")
-    .setDescription("Kick a user")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
-    ),
+    .setName("welcome-setup")
+    .setDescription("Setup welcome system"),
 
   new SlashCommandBuilder()
-    .setName("timeout")
-    .setDescription("Timeout a user (minutes)")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName("minutes").setDescription("Duration").setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("ban")
-    .setDescription("Ban a user")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason").setDescription("Reason")
-    ),
-
-  new SlashCommandBuilder()
-    .setName("tempban")
-    .setDescription("Temp ban (seconds)")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName("seconds").setDescription("Time").setRequired(true)
-    )
+    .setName("goodbye-setup")
+    .setDescription("Setup leave system")
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// RAID / NUKE PROTECTION SETTINGS
-// ─────────────────────────────
-
-const joinTracker = new Map(); // raid detection
-const RAID_LIMIT = 5; // 5 joins
-const RAID_TIME = 10 * 1000; // 10 seconds
-
-// ─────────────────────────────
-// READY (GUILD COMMANDS + CLEAN SYNC)
+// READY
 // ─────────────────────────────
 
 client.once("ready", async () => {
@@ -82,21 +53,16 @@ client.once("ready", async () => {
 
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-  try {
-    await new Promise(r => setTimeout(r, 2000));
+  await new Promise(r => setTimeout(r, 2000));
 
-    for (const guild of client.guilds.cache.values()) {
-      await rest.put(
-        Routes.applicationGuildCommands(client.user.id, guild.id),
-        { body: commands }
-      );
-      console.log(`Synced: ${guild.name}`);
-    }
-
-    console.log("Commands synced");
-  } catch (err) {
-    console.error(err);
+  for (const guild of client.guilds.cache.values()) {
+    await rest.put(
+      Routes.applicationGuildCommands(client.user.id, guild.id),
+      { body: commands }
+    );
   }
+
+  console.log("Commands synced");
 });
 
 // ─────────────────────────────
@@ -104,151 +70,142 @@ client.once("ready", async () => {
 // ─────────────────────────────
 
 client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
-  try {
+  if (interaction.isChatInputCommand()) {
 
     // 🏓 ping
     if (interaction.commandName === "ping") {
-      return interaction.reply("🏓 Pong!");
+      return interaction.reply("Pong!");
     }
 
-    // 📋 help
-    if (interaction.commandName === "help") {
-      const embed = new EmbedBuilder()
-        .setTitle("Commands")
-        .setColor(0x5865F2)
-        .setDescription(
-          "/ping\n/help\n/kick\n/timeout\n/ban\n/tempban"
-        );
+    // 👋 welcome setup
+    if (interaction.commandName === "welcome-setup") {
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("welcome_enable")
+          .setLabel("Enable Welcome")
+          .setStyle(ButtonStyle.Success),
 
-      return interaction.reply({ embeds: [embed] });
+        new ButtonBuilder()
+          .setCustomId("welcome_disable")
+          .setLabel("Disable")
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      return interaction.reply({
+        content: "Welcome System Panel\nClick a button below:",
+        components: [row],
+        ephemeral: true
+      });
     }
 
-    // 👢 kick
-    if (interaction.commandName === "kick") {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
-        return interaction.reply({ content: "No permission", ephemeral: true });
-      }
+    // 👋 goodbye setup
+    if (interaction.commandName === "goodbye-setup") {
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("leave_enable")
+          .setLabel("Enable Goodbye")
+          .setStyle(ButtonStyle.Success),
 
-      const user = interaction.options.getUser("user");
-      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+        new ButtonBuilder()
+          .setCustomId("leave_disable")
+          .setLabel("Disable")
+          .setStyle(ButtonStyle.Danger)
+      );
 
-      if (!member) return interaction.reply({ content: "User not found", ephemeral: true });
+      return interaction.reply({
+        content: "Goodbye System Panel",
+        components: [row],
+        ephemeral: true
+      });
+    }
+  }
 
-      await member.kick();
-      return interaction.reply(`👢 Kicked ${user.tag}`);
+  // ─────────────────────────────
+  // BUTTON HANDLING
+  // ─────────────────────────────
+
+  if (interaction.isButton()) {
+    const guildId = interaction.guild.id;
+
+    // welcome enable
+    if (interaction.customId === "welcome_enable") {
+      welcomeSettings.set(guildId, {
+        channel: interaction.channel.id,
+        message: "Welcome {user}!",
+        mention: true
+      });
+
+      return interaction.reply({ content: "✅ Welcome enabled", ephemeral: true });
     }
 
-    // ⏳ timeout
-    if (interaction.commandName === "timeout") {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-        return interaction.reply({ content: "No permission", ephemeral: true });
-      }
-
-      const user = interaction.options.getUser("user");
-      const minutes = interaction.options.getInteger("minutes");
-
-      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-
-      if (!member) return interaction.reply({ content: "User not found", ephemeral: true });
-
-      await member.timeout(minutes * 60 * 1000);
-      return interaction.reply(`⏳ Timed out ${user.tag} for ${minutes} minutes`);
+    if (interaction.customId === "welcome_disable") {
+      welcomeSettings.delete(guildId);
+      return interaction.reply({ content: "❌ Welcome disabled", ephemeral: true });
     }
 
-    // 🔨 ban
-    if (interaction.commandName === "ban") {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-        return interaction.reply({ content: "No permission", ephemeral: true });
-      }
+    // leave enable
+    if (interaction.customId === "leave_enable") {
+      leaveSettings.set(guildId, {
+        channel: interaction.channel.id,
+        message: "{user} left the server",
+        mention: false
+      });
 
-      const user = interaction.options.getUser("user");
-      const reason = interaction.options.getString("reason") || "No reason";
-
-      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-      if (!member) return interaction.reply({ content: "User not found", ephemeral: true });
-
-      await member.ban({ reason });
-      return interaction.reply(`🔨 Banned ${user.tag}`);
+      return interaction.reply({ content: "✅ Goodbye enabled", ephemeral: true });
     }
 
-    // ⏳ tempban
-    if (interaction.commandName === "tempban") {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-        return interaction.reply({ content: "No permission", ephemeral: true });
-      }
-
-      const user = interaction.options.getUser("user");
-      const seconds = interaction.options.getInteger("seconds");
-
-      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-      if (!member) return interaction.reply({ content: "User not found", ephemeral: true });
-
-      await member.ban();
-
-      setTimeout(async () => {
-        try {
-          await interaction.guild.members.unban(user.id);
-        } catch {}
-      }, seconds * 1000);
-
-      return interaction.reply(`⏳ Temp banned ${user.tag} for ${seconds}s`);
-    }
-
-  } catch (err) {
-    console.error(err);
-    if (!interaction.replied) {
-      interaction.reply({ content: "Error occurred", ephemeral: true });
+    if (interaction.customId === "leave_disable") {
+      leaveSettings.delete(guildId);
+      return interaction.reply({ content: "❌ Goodbye disabled", ephemeral: true });
     }
   }
 });
 
 // ─────────────────────────────
-// RAID PROTECTION (JOIN FLOOD)
+// MEMBER JOIN (WELCOME)
 // ─────────────────────────────
 
 client.on("guildMemberAdd", (member) => {
-  const now = Date.now();
-  const guildId = member.guild.id;
+  const settings = welcomeSettings.get(member.guild.id);
+  if (!settings) return;
 
-  if (!joinTracker.has(guildId)) {
-    joinTracker.set(guildId, []);
-  }
+  const channel = member.guild.channels.cache.get(settings.channel);
+  if (!channel) return;
 
-  const joins = joinTracker.get(guildId);
-  joins.push(now);
+  const text = settings.message.replace("{user}", `<@${member.id}>`);
 
-  // remove old joins
-  const filtered = joins.filter(t => now - t < RAID_TIME);
-  joinTracker.set(guildId, filtered);
+  const embed = new EmbedBuilder()
+    .setTitle("Welcome!")
+    .setDescription(text)
+    .setThumbnail(member.user.displayAvatarURL())
+    .setColor(0x57F287);
 
-  if (filtered.length >= RAID_LIMIT) {
-    console.log("RAID DETECTED!");
-
-    member.guild.channels.cache.forEach(channel => {
-      if (channel.isTextBased()) {
-        channel.send("⚠️ Raid detected! Server is being protected.");
-      }
-    });
-
-    // optional: lock server (basic protection)
-  }
+  channel.send({
+    content: settings.mention ? `<@${member.id}>` : null,
+    embeds: [embed]
+  });
 });
 
 // ─────────────────────────────
-// NUKE PROTECTION (basic detection)
+// MEMBER LEAVE (GOODBYE)
 // ─────────────────────────────
 
-client.on("channelDelete", async (channel) => {
-  try {
-    const logs = await channel.guild.fetchAuditLogs({ limit: 1, type: 12 });
-    const entry = logs.entries.first();
+client.on("guildMemberRemove", (member) => {
+  const settings = leaveSettings.get(member.guild.id);
+  if (!settings) return;
 
-    if (!entry) return;
+  const channel = member.guild.channels.cache.get(settings.channel);
+  if (!channel) return;
 
-    console.log(`Channel deleted by ${entry.executor.tag}`);
-  } catch {}
+  const text = settings.message.replace("{user}", member.user.tag);
+
+  const embed = new EmbedBuilder()
+    .setTitle("Goodbye!")
+    .setDescription(text)
+    .setThumbnail(member.user.displayAvatarURL())
+    .setColor(0xED4245);
+
+  channel.send({ embeds: [embed] });
 });
 
 // ─────────────────────────────
