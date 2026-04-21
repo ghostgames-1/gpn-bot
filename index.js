@@ -8,19 +8,17 @@ const {
   Routes,
   SlashCommandBuilder,
   PermissionsBitField,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   ChannelType
 } = require("discord.js");
+
+// ─────────────────────────────
+// CLIENT
+// ─────────────────────────────
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.GuildMembers
   ]
 });
 
@@ -31,14 +29,15 @@ const client = new Client({
 const welcome = new Map();
 const goodbye = new Map();
 const warns = new Map();
-const raid = new Map();
+const raidTracker = new Map();
 
 // ─────────────────────────────
-// SLASH COMMANDS (NO DUPLICATES)
+// COMMANDS
 // ─────────────────────────────
 
 const commands = [
   new SlashCommandBuilder().setName("ping").setDescription("Bot latency"),
+
   new SlashCommandBuilder().setName("help").setDescription("Commands list"),
 
   new SlashCommandBuilder()
@@ -102,12 +101,12 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("raid")
-    .setDescription("Enable/disable raid protection")
+    .setDescription("Toggle raid protection")
     .addBooleanOption(o => o.setName("toggle").setRequired(true))
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// REGISTER (FIXED DUPLICATE ISSUE)
+// READY (FIXED REGISTRATION)
 // ─────────────────────────────
 
 client.once("ready", async () => {
@@ -116,20 +115,14 @@ client.once("ready", async () => {
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   try {
-    // ALWAYS clear first → prevents duplicates
     await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: [] }
-    );
-
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
+      Routes.applicationCommands(client.application.id),
       { body: commands }
     );
 
-    console.log("Slash commands synced cleanly");
+    console.log("Slash commands synced");
   } catch (err) {
-    console.error(err);
+    console.error("Command sync error:", err);
   }
 });
 
@@ -159,7 +152,7 @@ client.on("interactionCreate", async (i) => {
 
     const user = i.options.getUser("user");
     const m = await guild.members.fetch(user.id).catch(() => null);
-    if (!m) return i.reply("Not found");
+    if (!m) return i.reply("User not found");
 
     await m.kick();
     return i.reply("Kicked");
@@ -172,29 +165,35 @@ client.on("interactionCreate", async (i) => {
 
     const user = i.options.getUser("user");
     const m = await guild.members.fetch(user.id).catch(() => null);
-    if (!m) return i.reply("Not found");
+    if (!m) return i.reply("User not found");
 
     await m.ban();
     return i.reply("Banned");
   }
 
-  // ── unban
+  // ── unban (FIXED)
   if (commandName === "unban") {
-    await guild.members.unban(i.options.getString("userid"));
-    return i.reply("Unbanned");
+    try {
+      await guild.bans.remove(i.options.getString("userid"));
+      return i.reply("Unbanned");
+    } catch {
+      return i.reply("Failed to unban user");
+    }
   }
 
   // ── timeout
   if (commandName === "timeout") {
     const user = i.options.getUser("user");
-    const m = await guild.members.fetch(user.id);
     const mins = i.options.getInteger("minutes");
+
+    const m = await guild.members.fetch(user.id).catch(() => null);
+    if (!m) return i.reply("User not found");
 
     await m.timeout(mins * 60000);
     return i.reply("Timed out");
   }
 
-  // ── warn system
+  // ── warn
   if (commandName === "warn") {
     const user = i.options.getUser("user");
     const reason = i.options.getString("reason");
@@ -207,7 +206,7 @@ client.on("interactionCreate", async (i) => {
 
   if (commandName === "warnings") {
     const user = i.options.getUser("user");
-    return i.reply(`${user.tag} warnings: ${(warns.get(user.id) || []).length}`);
+    return i.reply(`${user.tag}: ${(warns.get(user.id) || []).length} warnings`);
   }
 
   // ── clear
@@ -219,23 +218,26 @@ client.on("interactionCreate", async (i) => {
 
   // ── lock/unlock
   if (commandName === "lock") {
-    await i.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false });
+    await i.channel.permissionOverwrites.edit(guild.roles.everyone, {
+      SendMessages: false
+    });
     return i.reply("Locked");
   }
 
   if (commandName === "unlock") {
-    await i.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: true });
+    await i.channel.permissionOverwrites.edit(guild.roles.everyone, {
+      SendMessages: true
+    });
     return i.reply("Unlocked");
   }
 
-  // ── welcome
+  // ── welcome/goodbye
   if (commandName === "welcome") {
     const ch = i.options.getChannel("channel");
     welcome.set(guild.id, ch.id);
     return i.reply("Welcome set");
   }
 
-  // ── goodbye
   if (commandName === "goodbye") {
     const ch = i.options.getChannel("channel");
     goodbye.set(guild.id, ch.id);
@@ -245,7 +247,7 @@ client.on("interactionCreate", async (i) => {
   // ── raid toggle
   if (commandName === "raid") {
     const toggle = i.options.getBoolean("toggle");
-    raid.set(guild.id, toggle);
+    raidTracker.set(guild.id, toggle);
     return i.reply(`Raid protection: ${toggle ? "ON" : "OFF"}`);
   }
 
@@ -277,30 +279,39 @@ client.on("guildMemberRemove", m => {
 });
 
 // ─────────────────────────────
-// SIMPLE RAID PROTECTION
+// SAFE RAID PROTECTION
 // ─────────────────────────────
 
 client.on("guildMemberAdd", async member => {
-  if (!raid.get(member.guild.id)) return;
+  if (!raidTracker.get(member.guild.id)) return;
 
-  const recent = Date.now();
-  const key = member.guild.id;
+  const now = Date.now();
+  const id = member.guild.id;
 
-  if (!welcome.has(key)) welcome.set(key, []);
+  if (!welcome.has(id)) welcome.set(id, []);
 
-  const joins = welcome.get(key);
-  joins.push(recent);
+  const joins = welcome.get(id);
+  joins.push(now);
 
-  const filtered = joins.filter(t => recent - t < 10000);
-  welcome.set(key, filtered);
+  const recent = joins.filter(t => now - t < 10000);
+  welcome.set(id, recent);
 
-  if (filtered.length > 5) {
-    member.guild.roles.everyone.setPermissions([]);
+  if (recent.length > 5) {
+    try {
+      await member.guild.roles.everyone.setPermissions([]);
+    } catch (err) {
+      console.error("Raid protection error:", err);
+    }
   }
 });
 
 // ─────────────────────────────
-// LOGIN
+// LOGIN SAFETY
 // ─────────────────────────────
+
+if (!process.env.TOKEN) {
+  console.error("Missing TOKEN");
+  process.exit(1);
+}
 
 client.login(process.env.TOKEN);
