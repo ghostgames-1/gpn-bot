@@ -11,10 +11,6 @@ const {
   ChannelType
 } = require("discord.js");
 
-// ─────────────────────────────
-// CLIENT
-// ─────────────────────────────
-
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
@@ -29,7 +25,7 @@ const warns = new Map();
 const raid = new Map();
 
 // ─────────────────────────────
-// SLASH COMMANDS (VALIDATED)
+// COMMANDS
 // ─────────────────────────────
 
 const commands = [
@@ -39,119 +35,88 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("Server owner only message sender")
+    .setDescription("Owner message sender")
     .addStringOption(o =>
-      o.setName("message")
-        .setDescription("Message to send")
-        .setRequired(true)
+      o.setName("message").setDescription("Message").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("kick")
     .setDescription("Kick user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("ban")
     .setDescription("Ban user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("timeout")
     .setDescription("Timeout user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
     .addIntegerOption(o =>
-      o.setName("minutes")
-        .setDescription("Minutes")
-        .setRequired(true)
+      o.setName("minutes").setDescription("Minutes").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("warn")
     .setDescription("Warn user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
-        .setRequired(true)
+      o.setName("reason").setDescription("Reason").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("warnings")
     .setDescription("Check warnings")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("clear")
     .setDescription("Delete messages")
     .addIntegerOption(o =>
-      o.setName("amount")
-        .setDescription("Amount")
-        .setRequired(true)
+      o.setName("amount").setDescription("Amount").setRequired(true)
     ),
 
-  new SlashCommandBuilder()
-    .setName("lock")
-    .setDescription("Lock channel"),
+  new SlashCommandBuilder().setName("lock").setDescription("Lock channel"),
+  new SlashCommandBuilder().setName("unlock").setDescription("Unlock channel"),
 
-  new SlashCommandBuilder()
-    .setName("unlock")
-    .setDescription("Unlock channel"),
-
-  new SlashCommandBuilder()
-    .setName("ticket")
-    .setDescription("Create ticket"),
+  new SlashCommandBuilder().setName("ticket").setDescription("Create ticket"),
 
   new SlashCommandBuilder()
     .setName("welcome")
     .setDescription("Set welcome channel")
     .addChannelOption(o =>
-      o.setName("channel")
-        .setDescription("Channel")
-        .setRequired(true)
+      o.setName("channel").setDescription("Channel").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("goodbye")
     .setDescription("Set goodbye channel")
     .addChannelOption(o =>
-      o.setName("channel")
-        .setDescription("Channel")
-        .setRequired(true)
+      o.setName("channel").setDescription("Channel").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("raid")
     .setDescription("Toggle raid protection")
     .addBooleanOption(o =>
-      o.setName("toggle")
-        .setDescription("true/false")
-        .setRequired(true)
+      o.setName("toggle").setDescription("true/false").setRequired(true)
     )
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// READY + REGISTER (FIXED)
+// READY (GUILD ONLY + CLEAR GLOBAL)
 // ─────────────────────────────
 
 client.once("ready", async () => {
@@ -160,25 +125,31 @@ client.once("ready", async () => {
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   try {
-    // IMPORTANT: remove duplicates safely
+    // 🔥 DELETE ALL GLOBAL COMMANDS (THIS FIXES DUPLICATES)
     await rest.put(
       Routes.applicationCommands(client.application.id),
       { body: [] }
     );
 
-    await rest.put(
-      Routes.applicationCommands(client.application.id),
-      { body: commands }
-    );
+    console.log("Cleared global commands");
 
-    console.log("Commands synced cleanly");
+    // ✅ REGISTER ONLY GUILD COMMANDS
+    for (const guild of client.guilds.cache.values()) {
+      await rest.put(
+        Routes.applicationGuildCommands(client.application.id, guild.id),
+        { body: commands }
+      );
+
+      console.log(`Synced commands to: ${guild.name}`);
+    }
+
   } catch (err) {
     console.error(err);
   }
 });
 
 // ─────────────────────────────
-// INTERACTIONS
+// COMMAND HANDLER
 // ─────────────────────────────
 
 client.on("interactionCreate", async (i) => {
@@ -186,12 +157,8 @@ client.on("interactionCreate", async (i) => {
 
   const { commandName, guild, member } = i;
 
-  // ── ping
-  if (commandName === "ping") {
-    return i.reply("🏓 Pong!");
-  }
+  if (commandName === "ping") return i.reply("🏓 Pong!");
 
-  // ── help
   if (commandName === "help") {
     return i.reply({
       content:
@@ -199,22 +166,18 @@ client.on("interactionCreate", async (i) => {
     });
   }
 
-  // ─────────────────────────────
-  // FIXED /SAY COMMAND (OWNER ONLY + HIDDEN)
-  // ─────────────────────────────
-
+  // ✅ OWNER ONLY /SAY
   if (commandName === "say") {
     if (!guild || member.id !== guild.ownerId) {
-      return i.reply({ content: "Owner only command.", ephemeral: true });
+      return i.reply({ content: "Owner only", ephemeral: true });
     }
 
     const msg = i.options.getString("message");
 
-    await i.reply({ content: "Sent.", ephemeral: true });
+    await i.reply({ content: "Sent", ephemeral: true });
     return i.channel.send(msg);
   }
 
-  // ── kick
   if (commandName === "kick") {
     if (!member.permissions.has(PermissionsBitField.Flags.KickMembers))
       return i.reply({ content: "No permission", ephemeral: true });
@@ -227,7 +190,6 @@ client.on("interactionCreate", async (i) => {
     return i.reply("Kicked");
   }
 
-  // ── ban
   if (commandName === "ban") {
     if (!member.permissions.has(PermissionsBitField.Flags.BanMembers))
       return i.reply({ content: "No permission", ephemeral: true });
@@ -240,7 +202,6 @@ client.on("interactionCreate", async (i) => {
     return i.reply("Banned");
   }
 
-  // ── timeout
   if (commandName === "timeout") {
     const user = i.options.getUser("user");
     const mins = i.options.getInteger("minutes");
@@ -252,7 +213,6 @@ client.on("interactionCreate", async (i) => {
     return i.reply("Timed out");
   }
 
-  // ── warn
   if (commandName === "warn") {
     const user = i.options.getUser("user");
     const reason = i.options.getString("reason");
@@ -263,20 +223,17 @@ client.on("interactionCreate", async (i) => {
     return i.reply(`${user.tag} warned`);
   }
 
-  // ── warnings
   if (commandName === "warnings") {
     const user = i.options.getUser("user");
     return i.reply(`${user.tag}: ${(warns.get(user.id) || []).length}`);
   }
 
-  // ── clear
   if (commandName === "clear") {
     const amount = i.options.getInteger("amount");
     await i.channel.bulkDelete(amount, true);
-    return i.reply({ content: "Deleted messages", ephemeral: true });
+    return i.reply({ content: "Deleted", ephemeral: true });
   }
 
-  // ── lock/unlock
   if (commandName === "lock") {
     await i.channel.permissionOverwrites.edit(guild.roles.everyone, {
       SendMessages: false
@@ -291,7 +248,6 @@ client.on("interactionCreate", async (i) => {
     return i.reply("Unlocked");
   }
 
-  // ── ticket
   if (commandName === "ticket") {
     const ch = await guild.channels.create({
       name: `ticket-${i.user.username}`,
@@ -301,21 +257,18 @@ client.on("interactionCreate", async (i) => {
     return i.reply({ content: `Created: ${ch}`, ephemeral: true });
   }
 
-  // ── welcome
   if (commandName === "welcome") {
     const ch = i.options.getChannel("channel");
     welcome.set(guild.id, ch.id);
     return i.reply("Welcome set");
   }
 
-  // ── goodbye
   if (commandName === "goodbye") {
     const ch = i.options.getChannel("channel");
     goodbye.set(guild.id, ch.id);
     return i.reply("Goodbye set");
   }
 
-  // ── raid
   if (commandName === "raid") {
     const toggle = i.options.getBoolean("toggle");
     raid.set(guild.id, toggle);
