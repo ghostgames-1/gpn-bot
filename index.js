@@ -52,15 +52,16 @@ function modEmbed(title, color, user, reason) {
 }
 
 // ─────────────────────────────
-// 🔥 LIVE STATUS SYSTEM
+// 👀 LIVE STATUS SYSTEM
 // ─────────────────────────────
 
 function updateStatus() {
-  const count = client.guilds.cache.size;
+  if (!client.user) return;
 
-  client.user.setActivity(`${count} servers`, {
-    type: 3 // WATCHING
-  });
+  client.user.setActivity(
+    `${client.guilds.cache.size} servers`,
+    { type: 3 } // WATCHING
+  );
 }
 
 // ─────────────────────────────
@@ -77,13 +78,13 @@ const commands = [
     .setDescription("📢 Say message")
     .addStringOption(o =>
       o.setName("message")
-        .setDescription("Message to send")
+        .setDescription("Message")
         .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("kick")
-    .setDescription("👢 Kick member")
+    .setDescription("👢 Kick user")
     .addUserOption(o =>
       o.setName("user")
         .setDescription("User")
@@ -96,7 +97,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("🔨 Ban member")
+    .setDescription("🔨 Ban user")
     .addUserOption(o =>
       o.setName("user")
         .setDescription("User")
@@ -109,7 +110,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("timeout")
-    .setDescription("⏳ Timeout member")
+    .setDescription("⏳ Timeout user")
     .addUserOption(o =>
       o.setName("user")
         .setDescription("User")
@@ -181,7 +182,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("raid")
-    .setDescription("🛡 Toggle raid mode")
+    .setDescription("🛡 Raid mode")
     .addBooleanOption(o =>
       o.setName("toggle")
         .setDescription("On/Off")
@@ -190,10 +191,10 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("setcommandroles")
-    .setDescription("🔐 Set command roles")
+    .setDescription("🔐 Command roles")
     .addStringOption(o =>
       o.setName("command")
-        .setDescription("Command name")
+        .setDescription("Command")
         .setRequired(true)
     ),
 
@@ -217,47 +218,40 @@ const commands = [
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// REGISTER COMMANDS
+// 🚀 GLOBAL COMMAND REGISTER (FIXED)
 // ─────────────────────────────
 
 async function registerCommands() {
   try {
     const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-    const guilds = await client.guilds.fetch();
+    if (!client.application?.id) return;
 
-    for (const [, guild] of guilds) {
-      try {
-        await rest.put(
-          Routes.applicationGuildCommands(client.application.id, guild.id),
-          { body: commands }
-        );
+    console.log("🔄 Registering slash commands globally...");
 
-        console.log(`✅ Synced ${guild.id}`);
-      } catch (err) {
-        console.error(`❌ Failed ${guild.id}`, err);
-      }
-    }
+    await rest.put(
+      Routes.applicationCommands(client.application.id),
+      { body: commands }
+    );
 
+    console.log("✅ Slash commands registered");
   } catch (err) {
-    console.error("❌ Register crash:", err);
+    console.error("❌ Command error:", err);
   }
 }
 
 // ─────────────────────────────
-// READY (WITH LIVE STATUS)
+// READY EVENT
 // ─────────────────────────────
 
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  while (!client.application?.id) {
-    await new Promise(r => setTimeout(r, 500));
-  }
+  await new Promise(r => setTimeout(r, 2000));
 
   await registerCommands();
 
-  updateStatus(); // 🔥 initial status
+  updateStatus();
 
   console.log(`👀 Watching ${client.guilds.cache.size} servers`);
 });
@@ -266,21 +260,14 @@ client.once("ready", async () => {
 // LIVE STATUS UPDATES
 // ─────────────────────────────
 
-client.on("guildCreate", () => {
-  updateStatus();
-});
-
-client.on("guildDelete", () => {
-  updateStatus();
-});
+client.on("guildCreate", () => updateStatus());
+client.on("guildDelete", () => updateStatus());
 
 // ─────────────────────────────
 // AUTOROLE
 // ─────────────────────────────
 
 client.on("guildMemberAdd", member => {
-  if (!member?.guild) return;
-
   const roleId = autoroles.get(member.guild.id);
   if (!roleId) return;
 
