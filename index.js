@@ -38,7 +38,7 @@ const commandRoles = new Map();
 const autoroles = new Map();
 
 // ─────────────────────────────
-// EMBED HELPER
+// EMBED HELPERS
 // ─────────────────────────────
 
 function modEmbed(title, color, user, reason) {
@@ -64,7 +64,9 @@ const commands = [
   new SlashCommandBuilder()
     .setName("say")
     .setDescription("📢 Say message (owner only)")
-    .addStringOption(o => o.setName("message").setRequired(true)),
+    .addStringOption(o =>
+      o.setName("message").setDescription("Message").setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("kick")
@@ -142,20 +144,28 @@ const commands = [
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// REGISTER
+// REGISTER COMMANDS (FIXED)
 // ─────────────────────────────
 
 async function registerCommands() {
-  if (!client.user) return;
+  try {
+    if (!client.user) return;
 
-  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
-  const guilds = await client.guilds.fetch();
+    const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-  for (const [, guild] of guilds) {
-    await rest.put(
-      Routes.applicationGuildCommands(client.user.id, guild.id),
-      { body: commands }
-    );
+    const guilds = await client.guilds.fetch();
+
+    for (const [, guild] of guilds) {
+      await rest.put(
+        Routes.applicationGuildCommands(client.user.id, guild.id),
+        { body: commands }
+      );
+
+      console.log(`✅ Commands synced: ${guild.id}`);
+    }
+
+  } catch (err) {
+    console.error("❌ Command register error:", err);
   }
 }
 
@@ -192,11 +202,12 @@ function hasPermission(member, cmd) {
 }
 
 // ─────────────────────────────
-// COMMANDS
+// INTERACTIONS
 // ─────────────────────────────
 
 client.on("interactionCreate", async (i) => {
   if (!i.isChatInputCommand()) return;
+  if (!i.guild) return;
 
   const { commandName, guild, member } = i;
 
@@ -223,7 +234,7 @@ client.on("interactionCreate", async (i) => {
 
   if (commandName === "kick") {
     const user = i.options.getUser("user");
-    const reason = i.options.getString("reason") || "No reason provided";
+    const reason = i.options.getString("reason") || "No reason";
 
     const m = await guild.members.fetch(user.id).catch(() => null);
     if (!m) return i.reply("User not found");
@@ -234,7 +245,7 @@ client.on("interactionCreate", async (i) => {
 
   if (commandName === "ban") {
     const user = i.options.getUser("user");
-    const reason = i.options.getString("reason") || "No reason provided";
+    const reason = i.options.getString("reason") || "No reason";
 
     const m = await guild.members.fetch(user.id).catch(() => null);
     if (!m) return i.reply("User not found");
@@ -246,7 +257,7 @@ client.on("interactionCreate", async (i) => {
   if (commandName === "timeout") {
     const user = i.options.getUser("user");
     const mins = i.options.getInteger("minutes");
-    const reason = i.options.getString("reason") || "No reason provided";
+    const reason = i.options.getString("reason") || "No reason";
 
     const m = await guild.members.fetch(user.id);
 
@@ -272,24 +283,24 @@ client.on("interactionCreate", async (i) => {
     if (!warns.has(user.id)) warns.set(user.id, []);
     warns.get(user.id).push(reason);
 
-    return i.reply({
-      embeds: [modEmbed("Warned", 0xffff00, user, reason)]
-    });
+    return i.reply({ embeds: [modEmbed("Warned", 0xffff00, user, reason)] });
   }
 
   if (commandName === "warnings") {
     const user = i.options.getUser("user");
     const list = warns.get(user.id) || [];
 
-    const embed = new EmbedBuilder()
-      .setTitle("Warnings")
-      .setColor(0x3498db)
-      .setDescription(
-        list.length ? list.map((w, i) => `${i + 1}. ${w}`).join("\n") : "None"
-      )
-      .addFields({ name: "Total", value: `${list.length}` });
-
-    return i.reply({ embeds: [embed] });
+    return i.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("Warnings")
+          .setColor(0x3498db)
+          .setDescription(
+            list.length ? list.map((w, i) => `${i + 1}. ${w}`).join("\n") : "None"
+          )
+          .setTimestamp()
+      ]
+    });
   }
 
   if (commandName === "clear") {
@@ -325,17 +336,17 @@ client.on("interactionCreate", async (i) => {
 
   if (commandName === "welcome") {
     welcome.set(guild.id, i.options.getChannel("channel").id);
-    return i.reply("👋 Set");
+    return i.reply("Set");
   }
 
   if (commandName === "goodbye") {
     goodbye.set(guild.id, i.options.getChannel("channel").id);
-    return i.reply("👋 Set");
+    return i.reply("Set");
   }
 
   if (commandName === "raid") {
     raid.set(guild.id, i.options.getBoolean("toggle"));
-    return i.reply("🛡 Updated");
+    return i.reply("Updated");
   }
 
   if (commandName === "setcommandroles") {
@@ -343,8 +354,8 @@ client.on("interactionCreate", async (i) => {
 
     const roles = guild.roles.cache
       .filter(r => r.name !== "@everyone")
-      .map(r => ({ label: r.name, value: r.id }))
-      .slice(0, 25);
+      .first(25)
+      .map(r => ({ label: r.name, value: r.id }));
 
     const menu = new StringSelectMenuBuilder()
       .setCustomId(`roles_${cmd}`)
