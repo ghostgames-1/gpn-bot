@@ -14,47 +14,61 @@ const {
   ChannelType
 } = require("discord.js");
 
+// ─────────────────────────────
+// CLIENT (v14 SAFE INTENTS)
+// ─────────────────────────────
+
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages
+  ]
 });
 
+// ─────────────────────────────
 // STORAGE
+// ─────────────────────────────
+
 const welcome = new Map();
 const goodbye = new Map();
-const raid = new Map();
 const warns = new Map();
+const raid = new Map();
 const commandRoles = new Map();
 
-// COMMANDS
-const commands = [
-  new SlashCommandBuilder().setName("ping").setDescription("🏓 Check latency"),
+// ─────────────────────────────
+// SLASH COMMANDS (v14 SAFE)
+// ─────────────────────────────
 
-  new SlashCommandBuilder().setName("help").setDescription("📋 Commands list"),
+const commands = [
+  new SlashCommandBuilder().setName("ping").setDescription("🏓 Check bot latency"),
+
+  new SlashCommandBuilder().setName("help").setDescription("📋 Show commands"),
 
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("📢 Owner only message")
+    .setDescription("📢 Owner-only message")
     .addStringOption(o =>
       o.setName("message").setDescription("Message").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("kick")
-    .setDescription("👢 Kick user")
+    .setDescription("👢 Kick a user")
     .addUserOption(o =>
       o.setName("user").setDescription("User").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("🔨 Ban user")
+    .setDescription("🔨 Ban a user")
     .addUserOption(o =>
       o.setName("user").setDescription("User").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("timeout")
-    .setDescription("⏳ Timeout user")
+    .setDescription("⏳ Timeout a user")
     .addUserOption(o =>
       o.setName("user").setDescription("User").setRequired(true)
     )
@@ -100,54 +114,63 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("setcommandroles")
-    .setDescription("🔐 Restrict command to roles")
+    .setDescription("🔐 Set roles for command")
     .addStringOption(o =>
       o.setName("command").setDescription("Command name").setRequired(true)
     )
-
 ].map(c => c.toJSON());
 
-// READY
+// ─────────────────────────────
+// READY (SAFE GUILD REGISTER ONLY)
+// ─────────────────────────────
+
 client.once("ready", async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   try {
-    const guildId = client.guilds.cache.first()?.id;
-    if (!guildId) return console.log("⚠️ No guild found");
+    const guild = client.guilds.cache.first();
+    if (!guild) return console.log("⚠️ No guild found");
 
-    // ❌ CLEAR GLOBAL (fix duplicates)
+    // remove old global commands (fix duplicates)
     await rest.put(
-      Routes.applicationCommands(client.application.id),
+      Routes.applicationCommands(client.user.id),
       { body: [] }
     );
 
-    // ✅ REGISTER ONLY ONE GUILD (NO CRASH)
+    // register only ONE guild (prevents crashes + duplicates)
     await rest.put(
-      Routes.applicationGuildCommands(client.application.id, guildId),
+      Routes.applicationGuildCommands(client.user.id, guild.id),
       { body: commands }
     );
 
-    console.log("✅ Commands synced (guild only)");
+    console.log("✅ Commands synced safely");
   } catch (err) {
     console.error(err);
   }
 });
 
-// PERMISSION CHECK
+// ─────────────────────────────
+// PERMISSION SYSTEM
+// ─────────────────────────────
+
 function hasPerm(member, cmd) {
   if (!commandRoles.has(cmd)) return true;
   return member.roles.cache.some(r => commandRoles.get(cmd).includes(r.id));
 }
 
+// ─────────────────────────────
 // INTERACTIONS
+// ─────────────────────────────
+
 client.on("interactionCreate", async i => {
 
-  // DROPDOWN
+  // dropdown roles
   if (i.isStringSelectMenu()) {
     const cmd = i.customId.replace("roles_", "");
     commandRoles.set(cmd, i.values);
+
     return i.reply({ content: `✅ Roles set for /${cmd}`, ephemeral: true });
   }
 
@@ -159,108 +182,134 @@ client.on("interactionCreate", async i => {
     return i.reply({ content: "❌ No permission", ephemeral: true });
   }
 
+  // ping
   if (commandName === "ping") return i.reply("🏓 Pong!");
 
+  // help
   if (commandName === "help") {
-    return i.reply("Use / to view commands");
+    return i.reply("Use / to see commands");
   }
 
+  // say (OWNER ONLY FIXED)
   if (commandName === "say") {
     if (guild.ownerId !== i.user.id)
-      return i.reply({ content: "Owner only", ephemeral: true });
+      return i.reply({ content: "❌ Owner only", ephemeral: true });
 
     const msg = i.options.getString("message");
+
     await i.reply({ content: "Sent", ephemeral: true });
     return i.channel.send(msg);
   }
 
+  // kick
   if (commandName === "kick") {
     if (!member.permissions.has(PermissionsBitField.Flags.KickMembers))
       return i.reply({ content: "No permission", ephemeral: true });
 
-    const m = await guild.members.fetch(i.options.getUser("user").id).catch(()=>null);
+    const m = await guild.members.fetch(i.options.getUser("user").id).catch(() => null);
     if (!m) return i.reply("User not found");
 
     await m.kick();
     return i.reply("👢 Kicked");
   }
 
+  // ban
   if (commandName === "ban") {
     if (!member.permissions.has(PermissionsBitField.Flags.BanMembers))
       return i.reply({ content: "No permission", ephemeral: true });
 
-    const m = await guild.members.fetch(i.options.getUser("user").id).catch(()=>null);
+    const m = await guild.members.fetch(i.options.getUser("user").id).catch(() => null);
     if (!m) return i.reply("User not found");
 
     await m.ban();
     return i.reply("🔨 Banned");
   }
 
+  // timeout
   if (commandName === "timeout") {
-    const m = await guild.members.fetch(i.options.getUser("user").id).catch(()=>null);
+    const m = await guild.members.fetch(i.options.getUser("user").id).catch(() => null);
     if (!m) return i.reply("User not found");
 
     await m.timeout(i.options.getInteger("minutes") * 60000);
     return i.reply("⏳ Timed out");
   }
 
+  // warn
   if (commandName === "warn") {
     const u = i.options.getUser("user");
     if (!warns.has(u.id)) warns.set(u.id, []);
     warns.get(u.id).push(i.options.getString("reason"));
+
     return i.reply("⚠️ Warned");
   }
 
+  // warnings
   if (commandName === "warnings") {
     const u = i.options.getUser("user");
     return i.reply(`Warnings: ${(warns.get(u.id) || []).length}`);
   }
 
+  // clear
   if (commandName === "clear") {
     await i.channel.bulkDelete(i.options.getInteger("amount"), true);
     return i.reply({ content: "🧹 Cleared", ephemeral: true });
   }
 
+  // lock
   if (commandName === "lock") {
-    await i.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false });
+    await i.channel.permissionOverwrites.edit(guild.roles.everyone, {
+      SendMessages: false
+    });
     return i.reply("🔒 Locked");
   }
 
+  // unlock
   if (commandName === "unlock") {
-    await i.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: true });
+    await i.channel.permissionOverwrites.edit(guild.roles.everyone, {
+      SendMessages: true
+    });
     return i.reply("🔓 Unlocked");
   }
 
+  // ticket (SAFE)
   if (commandName === "ticket") {
     const ch = await guild.channels.create({
       name: `ticket-${i.user.username}`,
       type: ChannelType.GuildText
-    });
+    }).catch(() => null);
+
+    if (!ch)
+      return i.reply({ content: "❌ Failed to create ticket", ephemeral: true });
+
     return i.reply({ content: `🎫 ${ch}`, ephemeral: true });
   }
 
+  // welcome
   if (commandName === "welcome") {
     welcome.set(guild.id, i.options.getChannel("channel").id);
     return i.reply("👋 Welcome set");
   }
 
+  // goodbye
   if (commandName === "goodbye") {
     goodbye.set(guild.id, i.options.getChannel("channel").id);
     return i.reply("👋 Goodbye set");
   }
 
+  // raid
   if (commandName === "raid") {
     raid.set(guild.id, i.options.getBoolean("toggle"));
     return i.reply("🛡️ Updated");
   }
 
+  // role command UI (SAFE LIMIT FIX)
   if (commandName === "setcommandroles") {
     const cmd = i.options.getString("command");
 
-    const roles = guild.roles.cache.map(r => ({
-      label: r.name,
-      value: r.id
-    })).slice(0, 25); // FIX LIMIT
+    const roles = guild.roles.cache
+      .filter(r => r.id !== guild.id)
+      .map(r => ({ label: r.name.slice(0, 100), value: r.id }))
+      .slice(0, 25);
 
     const menu = new StringSelectMenuBuilder()
       .setCustomId(`roles_${cmd}`)
@@ -277,23 +326,14 @@ client.on("interactionCreate", async i => {
       ephemeral: true
     });
   }
-
 });
 
-// EVENTS
-client.on("guildMemberAdd", m => {
-  const ch = welcome.get(m.guild.id);
-  if (ch) m.guild.channels.cache.get(ch)?.send(`👋 Welcome ${m.user.tag}`);
-});
-
-client.on("guildMemberRemove", m => {
-  const ch = goodbye.get(m.guild.id);
-  if (ch) m.guild.channels.cache.get(ch)?.send(`${m.user.tag} left`);
-});
-
+// ─────────────────────────────
 // LOGIN
+// ─────────────────────────────
+
 if (!process.env.TOKEN) {
-  console.error("❌ TOKEN missing");
+  console.error("❌ Missing TOKEN");
   process.exit(1);
 }
 
