@@ -29,12 +29,9 @@ const client = new Client({
 // STORAGE
 // ─────────────────────────────
 
-const welcome = new Map();
-const goodbye = new Map();
-const raid = new Map();
 const warns = new Map();
-const commandRoles = new Map();
 const autoroles = new Map();
+const commandRoles = new Map();
 
 // ─────────────────────────────
 // EMBED
@@ -52,7 +49,7 @@ function modEmbed(title, color, user, reason) {
 }
 
 // ─────────────────────────────
-// 👀 LIVE STATUS SYSTEM
+// 👀 LIVE STATUS
 // ─────────────────────────────
 
 function updateStatus() {
@@ -60,188 +57,98 @@ function updateStatus() {
 
   client.user.setActivity(
     `${client.guilds.cache.size} servers`,
-    { type: 3 } // WATCHING
+    { type: 3 }
   );
 }
 
 // ─────────────────────────────
-// COMMANDS
+// COMMANDS (GUILD ONLY)
 // ─────────────────────────────
 
 const commands = [
 
   new SlashCommandBuilder().setName("ping").setDescription("🏓 Ping bot"),
-  new SlashCommandBuilder().setName("help").setDescription("📋 Help menu"),
-
-  new SlashCommandBuilder()
-    .setName("say")
-    .setDescription("📢 Say message")
-    .addStringOption(o =>
-      o.setName("message")
-        .setDescription("Message")
-        .setRequired(true)
-    ),
 
   new SlashCommandBuilder()
     .setName("kick")
     .setDescription("👢 Kick user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
+      o.setName("reason").setDescription("Reason")
     ),
 
   new SlashCommandBuilder()
     .setName("ban")
     .setDescription("🔨 Ban user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
-    ),
-
-  new SlashCommandBuilder()
-    .setName("timeout")
-    .setDescription("⏳ Timeout user")
-    .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName("minutes")
-        .setDescription("Minutes")
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
+      o.setName("reason").setDescription("Reason")
     ),
 
   new SlashCommandBuilder()
     .setName("warn")
     .setDescription("⚠ Warn user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
-        .setRequired(true)
+      o.setName("reason").setDescription("Reason").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("warnings")
     .setDescription("📊 View warnings")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("clear")
     .setDescription("🧹 Clear messages")
     .addIntegerOption(o =>
-      o.setName("amount")
-        .setDescription("Max 100")
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder().setName("lock").setDescription("🔒 Lock channel"),
-  new SlashCommandBuilder().setName("unlock").setDescription("🔓 Unlock channel"),
-  new SlashCommandBuilder().setName("ticket").setDescription("🎫 Create ticket"),
-
-  new SlashCommandBuilder()
-    .setName("welcome")
-    .setDescription("👋 Set welcome")
-    .addChannelOption(o =>
-      o.setName("channel")
-        .setDescription("Channel")
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("goodbye")
-    .setDescription("👋 Set goodbye")
-    .addChannelOption(o =>
-      o.setName("channel")
-        .setDescription("Channel")
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("raid")
-    .setDescription("🛡 Raid mode")
-    .addBooleanOption(o =>
-      o.setName("toggle")
-        .setDescription("On/Off")
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("setcommandroles")
-    .setDescription("🔐 Command roles")
-    .addStringOption(o =>
-      o.setName("command")
-        .setDescription("Command")
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("autorole")
-    .setDescription("⚙ Autorole system")
-    .addSubcommand(s =>
-      s.setName("set")
-        .setDescription("Set role")
-        .addRoleOption(o =>
-          o.setName("role")
-            .setDescription("Role")
-            .setRequired(true)
-        )
-    )
-    .addSubcommand(s =>
-      s.setName("remove")
-        .setDescription("Remove role")
+      o.setName("amount").setDescription("Max 100").setRequired(true)
     )
 
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// 🚀 GLOBAL COMMAND REGISTER (FIXED)
+// 🚀 REGISTER (GUILD ONLY + NO DUPES)
 // ─────────────────────────────
 
 async function registerCommands() {
   try {
     const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-    if (!client.application?.id) return;
+    const guilds = await client.guilds.fetch();
 
-    console.log("🔄 Registering slash commands globally...");
+    for (const [, guild] of guilds) {
 
-    await rest.put(
-      Routes.applicationCommands(client.application.id),
-      { body: commands }
-    );
+      // 🧹 CLEAR OLD COMMANDS FIRST (FIX DUPLICATES)
+      await rest.put(
+        Routes.applicationGuildCommands(client.application.id, guild.id),
+        { body: [] }
+      );
 
-    console.log("✅ Slash commands registered");
+      // ➕ ADD CLEAN COMMANDS
+      await rest.put(
+        Routes.applicationGuildCommands(client.application.id, guild.id),
+        { body: commands }
+      );
+
+      console.log(`✅ Synced & cleaned ${guild.id}`);
+    }
+
   } catch (err) {
-    console.error("❌ Command error:", err);
+    console.error("Command error:", err);
   }
 }
 
 // ─────────────────────────────
-// READY EVENT
+// READY
 // ─────────────────────────────
 
 client.once("ready", async () => {
@@ -260,8 +167,97 @@ client.once("ready", async () => {
 // LIVE STATUS UPDATES
 // ─────────────────────────────
 
-client.on("guildCreate", () => updateStatus());
-client.on("guildDelete", () => updateStatus());
+client.on("guildCreate", updateStatus);
+client.on("guildDelete", updateStatus);
+
+// ─────────────────────────────
+// INTERACTIONS (FIXED “FAILED TO INTERACT”)
+// ─────────────────────────────
+
+client.on("interactionCreate", async (i) => {
+  if (!i.isChatInputCommand()) return;
+
+  const { commandName, guild, member } = i;
+
+  // 🏓 PING
+  if (commandName === "ping") {
+    return i.reply("🏓 Pong!");
+  }
+
+  // 👢 KICK
+  if (commandName === "kick") {
+    await i.deferReply();
+
+    const user = i.options.getUser("user");
+    const reason = i.options.getString("reason") || "No reason";
+
+    const m = await guild.members.fetch(user.id).catch(() => null);
+    if (!m) return i.editReply("User not found");
+
+    await m.kick(reason);
+
+    return i.editReply({
+      embeds: [modEmbed("Kicked", 0xffa500, user, reason)]
+    });
+  }
+
+  // 🔨 BAN
+  if (commandName === "ban") {
+    await i.deferReply();
+
+    const user = i.options.getUser("user");
+    const reason = i.options.getString("reason") || "No reason";
+
+    const m = await guild.members.fetch(user.id).catch(() => null);
+    if (!m) return i.editReply("User not found");
+
+    await m.ban({ reason });
+
+    return i.editReply({
+      embeds: [modEmbed("Banned", 0xff0000, user, reason)]
+    });
+  }
+
+  // ⚠ WARN
+  if (commandName === "warn") {
+    await i.deferReply();
+
+    const user = i.options.getUser("user");
+    const reason = i.options.getString("reason");
+
+    if (!warns.has(user.id)) warns.set(user.id, []);
+    warns.get(user.id).push(reason);
+
+    return i.editReply({
+      embeds: [modEmbed("Warned", 0xffff00, user, reason)]
+    });
+  }
+
+  // 📊 WARNINGS
+  if (commandName === "warnings") {
+    const user = i.options.getUser("user");
+    const list = warns.get(user.id) || [];
+
+    return i.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("Warnings")
+          .setColor(0x3498db)
+          .setDescription(list.length ? list.join("\n") : "None")
+      ]
+    });
+  }
+
+  // 🧹 CLEAR
+  if (commandName === "clear") {
+    await i.deferReply();
+
+    const amt = Math.min(i.options.getInteger("amount"), 100);
+    await i.channel.bulkDelete(amt, true);
+
+    return i.editReply("🧹 Cleared messages");
+  }
+});
 
 // ─────────────────────────────
 // AUTOROLE
