@@ -21,8 +21,7 @@ const {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages
+    GatewayIntentBits.GuildMembers
   ]
 });
 
@@ -38,7 +37,7 @@ const commandRoles = new Map();
 const autoroles = new Map();
 
 // ─────────────────────────────
-// EMBED HELPER
+// EMBED
 // ─────────────────────────────
 
 function modEmbed(title, color, user, reason) {
@@ -53,55 +52,99 @@ function modEmbed(title, color, user, reason) {
 }
 
 // ─────────────────────────────
-// COMMANDS
+// COMMANDS (VALIDATED SAFE)
 // ─────────────────────────────
 
 const commands = [
 
-  new SlashCommandBuilder().setName("ping").setDescription("🏓 Ping"),
-  new SlashCommandBuilder().setName("help").setDescription("📋 Help"),
+  new SlashCommandBuilder().setName("ping").setDescription("🏓 Ping bot"),
+
+  new SlashCommandBuilder().setName("help").setDescription("📋 Help menu"),
 
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("📢 Say message (owner only)")
+    .setDescription("📢 Say message")
     .addStringOption(o =>
-      o.setName("message").setDescription("Message").setRequired(true)
+      o.setName("message")
+        .setDescription("Message to send")
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("kick")
-    .setDescription("👢 Kick user")
-    .addUserOption(o => o.setName("user").setRequired(true))
-    .addStringOption(o => o.setName("reason")),
+    .setDescription("👢 Kick member")
+    .addUserOption(o =>
+      o.setName("user")
+        .setDescription("User")
+        .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName("reason")
+        .setDescription("Reason")
+    ),
 
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("🔨 Ban user")
-    .addUserOption(o => o.setName("user").setRequired(true))
-    .addStringOption(o => o.setName("reason")),
+    .setDescription("🔨 Ban member")
+    .addUserOption(o =>
+      o.setName("user")
+        .setDescription("User")
+        .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName("reason")
+        .setDescription("Reason")
+    ),
 
   new SlashCommandBuilder()
     .setName("timeout")
-    .setDescription("⏳ Timeout user")
-    .addUserOption(o => o.setName("user").setRequired(true))
-    .addIntegerOption(o => o.setName("minutes").setRequired(true))
-    .addStringOption(o => o.setName("reason")),
+    .setDescription("⏳ Timeout member")
+    .addUserOption(o =>
+      o.setName("user")
+        .setDescription("User")
+        .setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName("minutes")
+        .setDescription("Minutes")
+        .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName("reason")
+        .setDescription("Reason")
+    ),
 
   new SlashCommandBuilder()
     .setName("warn")
     .setDescription("⚠ Warn user")
-    .addUserOption(o => o.setName("user").setRequired(true))
-    .addStringOption(o => o.setName("reason").setRequired(true)),
+    .addUserOption(o =>
+      o.setName("user")
+        .setDescription("User")
+        .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName("reason")
+        .setDescription("Reason")
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("warnings")
     .setDescription("📊 View warnings")
-    .addUserOption(o => o.setName("user").setRequired(true)),
+    .addUserOption(o =>
+      o.setName("user")
+        .setDescription("User")
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("clear")
     .setDescription("🧹 Clear messages")
-    .addIntegerOption(o => o.setName("amount").setRequired(true)),
+    .addIntegerOption(o =>
+      o.setName("amount")
+        .setDescription("Amount (max 100)")
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder().setName("lock").setDescription("🔒 Lock channel"),
   new SlashCommandBuilder().setName("unlock").setDescription("🔓 Unlock channel"),
@@ -110,30 +153,50 @@ const commands = [
   new SlashCommandBuilder()
     .setName("welcome")
     .setDescription("👋 Set welcome")
-    .addChannelOption(o => o.setName("channel").setRequired(true)),
+    .addChannelOption(o =>
+      o.setName("channel")
+        .setDescription("Channel")
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("goodbye")
     .setDescription("👋 Set goodbye")
-    .addChannelOption(o => o.setName("channel").setRequired(true)),
+    .addChannelOption(o =>
+      o.setName("channel")
+        .setDescription("Channel")
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("raid")
-    .setDescription("🛡 Toggle raid")
-    .addBooleanOption(o => o.setName("toggle").setRequired(true)),
+    .setDescription("🛡 Toggle raid mode")
+    .addBooleanOption(o =>
+      o.setName("toggle")
+        .setDescription("On/Off")
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("setcommandroles")
-    .setDescription("🔐 Command roles")
-    .addStringOption(o => o.setName("command").setRequired(true)),
+    .setDescription("🔐 Set command roles")
+    .addStringOption(o =>
+      o.setName("command")
+        .setDescription("Command name")
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("autorole")
-    .setDescription("⚙ Autorole")
+    .setDescription("⚙ Autorole system")
     .addSubcommand(s =>
       s.setName("set")
         .setDescription("Set role")
-        .addRoleOption(o => o.setName("role").setRequired(true))
+        .addRoleOption(o =>
+          o.setName("role")
+            .setDescription("Role")
+            .setRequired(true)
+        )
     )
     .addSubcommand(s =>
       s.setName("remove")
@@ -143,25 +206,30 @@ const commands = [
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// REGISTER COMMANDS (SAFE)
+// REGISTER COMMANDS (FIXED ROOT ISSUE)
 // ─────────────────────────────
 
 async function registerCommands() {
   try {
-    if (!client.user) return;
-
     const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+
+    if (!client.application?.id) {
+      console.log("⏳ Waiting for application ID...");
+      return;
+    }
+
     const guilds = await client.guilds.fetch();
 
     for (const [, guild] of guilds) {
       try {
         await rest.put(
-          Routes.applicationGuildCommands(client.user.id, guild.id),
+          Routes.applicationGuildCommands(client.application.id, guild.id),
           { body: commands }
         );
+
         console.log(`✅ Synced ${guild.id}`);
       } catch (err) {
-        console.error(`❌ Guild failed ${guild.id}`, err);
+        console.error(`❌ Failed ${guild.id}`, err);
       }
     }
 
@@ -171,16 +239,21 @@ async function registerCommands() {
 }
 
 // ─────────────────────────────
-// READY
+// READY (FIXED ORDER)
 // ─────────────────────────────
 
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
+
+  while (!client.application?.id) {
+    await new Promise(r => setTimeout(r, 500));
+  }
+
   await registerCommands();
 });
 
 // ─────────────────────────────
-// AUTOROLE (SAFE)
+// AUTOROLE
 // ─────────────────────────────
 
 client.on("guildMemberAdd", member => {
@@ -301,8 +374,7 @@ client.on("interactionCreate", async (i) => {
         new EmbedBuilder()
           .setTitle("Warnings")
           .setColor(0x3498db)
-          .setDescription(list.length ? list.map((w, i) => `${i + 1}. ${w}`).join("\n") : "None")
-          .setTimestamp()
+          .setDescription(list.length ? list.join("\n") : "None")
       ]
     });
   }
@@ -358,7 +430,10 @@ client.on("interactionCreate", async (i) => {
 
     const roles = guild.roles.cache
       .filter(r => r.name !== "@everyone")
-      .map(r => ({ label: r.name, value: r.id, description: "role" }))
+      .map(r => ({
+        label: r.name.slice(0, 25),
+        value: r.id
+      }))
       .slice(0, 25);
 
     if (!roles.length)
