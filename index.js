@@ -23,7 +23,7 @@ const client = new Client({
 });
 
 // ─────────────────────────────
-// WARN DATABASE
+// WARN DB
 // ─────────────────────────────
 
 const DB_FILE = "./warns.json";
@@ -36,7 +36,7 @@ function saveDB() {
 }
 
 // ─────────────────────────────
-// EMBED HELPER
+// EMBED
 // ─────────────────────────────
 
 function embed(title, color, fields = []) {
@@ -48,33 +48,31 @@ function embed(title, color, fields = []) {
 }
 
 // ─────────────────────────────
-// FILTER SIGNATURES (CHECKLINK)
+// FILTER LIST
 // ─────────────────────────────
 
 const filters = {
-  fortiguard: ["fortiguard", "fortinet"],
-  goguardian: ["goguardian"],
-  lightspeed: ["lightspeed", "relay.school"],
-  securly: ["securly"],
-  blocksi: ["blocksi"],
-  linewize: ["linewize", "familyzone"],
-  contentkeeper: ["contentkeeper"]
+  FortiGuard: ["fortiguard", "fortinet"],
+  GoGuardian: ["goguardian"],
+  Lightspeed: ["lightspeed", "relay.school"],
+  Securly: ["securly"],
+  Blocksi: ["blocksi"],
+  Linewize: ["linewize", "familyzone"],
+  ContentKeeper: ["contentkeeper"]
 };
 
 // ─────────────────────────────
-// STATUS LIVE WATCHING SERVERS
+// STATUS (WATCHING SERVERS)
 // ─────────────────────────────
 
 function updateStatus() {
   if (!client.user) return;
 
   client.user.setPresence({
-    activities: [
-      {
-        name: `${client.guilds.cache.size} servers`,
-        type: ActivityType.Watching
-      }
-    ],
+    activities: [{
+      name: `${client.guilds.cache.size} servers`,
+      type: ActivityType.Watching
+    }],
     status: "online"
   });
 }
@@ -85,8 +83,8 @@ function updateStatus() {
 
 const commands = [
 
-  new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
-  new SlashCommandBuilder().setName("help").setDescription("Show commands"),
+  new SlashCommandBuilder().setName("ping").setDescription("Ping bot"),
+  new SlashCommandBuilder().setName("help").setDescription("Commands list"),
   new SlashCommandBuilder().setName("about").setDescription("Bot info"),
   new SlashCommandBuilder().setName("analytics").setDescription("Server stats"),
 
@@ -94,74 +92,70 @@ const commands = [
     .setName("say")
     .setDescription("Send message")
     .addStringOption(o =>
-      o.setName("message")
-        .setDescription("Message")
-        .setRequired(true)
+      o.setName("message").setRequired(true)
     ),
 
   new SlashCommandBuilder()
-    .setName("checklink")
-    .setDescription("Check website accessibility + filter detection")
+    .setName("checkall")
+    .setDescription("Check website against all filters")
     .addStringOption(o =>
-      o.setName("url")
-        .setDescription("Website URL")
-        .setRequired(true)
+      o.setName("url").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("kick")
-    .setDescription("Kick a user")
+    .setDescription("Kick user")
     .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
+      o.setName("user").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason").setDescription("Reason")
+      o.setName("reason")
     ),
 
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("Ban a user")
+    .setDescription("Ban user")
     .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
+      o.setName("user").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason").setDescription("Reason")
+      o.setName("reason")
     ),
 
   new SlashCommandBuilder()
     .setName("timeout")
-    .setDescription("Timeout a user")
+    .setDescription("Timeout user")
     .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
+      o.setName("user").setRequired(true)
     )
     .addIntegerOption(o =>
-      o.setName("minutes").setDescription("Minutes").setRequired(true)
+      o.setName("minutes").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason").setDescription("Reason")
+      o.setName("reason")
     ),
 
   new SlashCommandBuilder()
     .setName("warn")
-    .setDescription("Warn a user")
+    .setDescription("Warn user")
     .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
+      o.setName("user").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason").setDescription("Reason").setRequired(true)
+      o.setName("reason").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("warnings")
     .setDescription("View warnings")
     .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
+      o.setName("user").setRequired(true)
     )
 
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// REGISTER COMMANDS (GUILD ONLY SAFE)
+// REGISTER (GUILD ONLY)
 // ─────────────────────────────
 
 async function registerCommands() {
@@ -178,7 +172,7 @@ async function registerCommands() {
     );
   }
 
-  console.log("✅ Commands synced (guild only)");
+  console.log("✅ Commands synced");
 }
 
 // ─────────────────────────────
@@ -191,9 +185,7 @@ client.once("ready", async () => {
   await registerCommands();
   updateStatus();
 
-  console.log(`👀 Watching ${client.guilds.cache.size} servers`);
-
-  setInterval(updateStatus, 15000); // live count update
+  setInterval(updateStatus, 15000);
 });
 
 // ─────────────────────────────
@@ -207,40 +199,30 @@ client.on("interactionCreate", async i => {
 
   // ───────── BASIC ─────────
 
-  if (commandName === "ping") {
+  if (commandName === "ping")
     return i.reply({ embeds: [embed("🏓 Pong", 0x2ecc71)] });
-  }
 
-  if (commandName === "help") {
+  if (commandName === "help")
     return i.reply({
-      embeds: [
-        embed("Help", 0x3498db, [
-          { name: "Commands", value: "/ping /help /about /analytics /say /checklink /kick /ban /timeout /warn /warnings" }
-        ])
-      ]
+      embeds: [embed("Help", 0x3498db, [
+        { name: "Commands", value: "/ping /help /about /analytics /say /checkall /kick /ban /timeout /warn /warnings" }
+      ])]
     });
-  }
 
-  if (commandName === "about") {
+  if (commandName === "about")
     return i.reply({
-      embeds: [
-        embed("About Bot", 0x9b59b6, [
-          { name: "Servers Watching", value: `${client.guilds.cache.size}` },
-          { name: "Status", value: "Live monitoring enabled 👀" }
-        ])
-      ]
+      embeds: [embed("About Bot", 0x9b59b6, [
+        { name: "Servers", value: `${client.guilds.cache.size}` },
+        { name: "Status", value: "Watching servers live 👀" }
+      ])]
     });
-  }
 
-  if (commandName === "analytics") {
+  if (commandName === "analytics")
     return i.reply({
-      embeds: [
-        embed("Analytics", 0x1abc9c, [
-          { name: "Servers", value: `${client.guilds.cache.size}` }
-        ])
-      ]
+      embeds: [embed("Analytics", 0x1abc9c, [
+        { name: "Servers", value: `${client.guilds.cache.size}` }
+      ])]
     });
-  }
 
   // ───────── SAY ─────────
 
@@ -250,59 +232,63 @@ client.on("interactionCreate", async i => {
     return i.editReply({ embeds: [embed("Sent", 0x2ecc71)] });
   }
 
-  // ───────── CHECKLINK ─────────
+  // ───────── CHECKALL ─────────
 
-  if (commandName === "checklink") {
+  if (commandName === "checkall") {
     await i.deferReply();
 
     let url = i.options.getString("url");
     if (!url.startsWith("http")) url = "https://" + url;
 
-    let result = "Unknown";
-    let color = 0x3498db;
-    let detected = "None";
+    let results = [];
+    let category = "Unknown";
 
     try {
       const res = await fetch(url);
       const text = await res.text().catch(() => "");
       const lower = text.toLowerCase();
 
+      if (lower.includes("video")) category = "Video";
+      if (lower.includes("game")) category = "Gaming";
+      if (lower.includes("education")) category = "Education";
+      if (lower.includes("social")) category = "Social";
+
+      let blocked = [];
+
       for (const [name, sigs] of Object.entries(filters)) {
-        if (sigs.some(s => lower.includes(s))) {
-          detected = name;
-          result = "⚠ Filter Detected";
-          color = 0xf1c40f;
-          break;
+        const hit = sigs.some(s => lower.includes(s));
+
+        if (hit) {
+          results.push(`❌ ${name}`);
+          blocked.push(name);
+        } else {
+          results.push(`✔ ${name}`);
         }
       }
 
-      if (res.ok && detected === "None") {
-        result = "✅ Reachable";
-        color = 0x2ecc71;
-      } else if (!res.ok) {
-        result = `❌ Blocked (HTTP ${res.status})`;
-        color = 0xe74c3c;
-      }
+      return i.editReply({
+        embeds: [
+          embed("🌐 CHECKALL REPORT", blocked.length ? 0xe74c3c : 0x2ecc71, [
+            { name: "URL", value: url },
+            { name: "Category", value: category },
+            { name: "Status", value: blocked.length ? "Blocked" : "Unblocked" },
+            { name: "Filters", value: results.join("\n") }
+          ])
+        ]
+      });
 
     } catch {
-      result = "❌ Unreachable";
-      color = 0xe74c3c;
+      return i.editReply({
+        embeds: [embed("Error", 0xe74c3c, [
+          { name: "Result", value: "Site unreachable" }
+        ])]
+      });
     }
-
-    return i.editReply({
-      embeds: [
-        embed("Website Check", color, [
-          { name: "URL", value: url },
-          { name: "Result", value: result },
-          { name: "Detected Filter", value: detected }
-        ])
-      ]
-    });
   }
 
   // ───────── MODERATION ─────────
 
-  async function modAction(type) {
+  async function mod(type) {
     await i.deferReply();
 
     const user = i.options.getUser("user");
@@ -317,20 +303,18 @@ client.on("interactionCreate", async i => {
     }
 
     return i.editReply({
-      embeds: [
-        embed(`${type.toUpperCase()} DONE`, 0xe67e22, [
-          { name: "User", value: user.tag },
-          { name: "Reason", value: reason }
-        ])
-      ]
+      embeds: [embed(type.toUpperCase(), 0xe67e22, [
+        { name: "User", value: user.tag },
+        { name: "Reason", value: reason }
+      ])]
     });
   }
 
-  if (commandName === "kick") return modAction("kick");
-  if (commandName === "ban") return modAction("ban");
-  if (commandName === "timeout") return modAction("timeout");
+  if (commandName === "kick") return mod("kick");
+  if (commandName === "ban") return mod("ban");
+  if (commandName === "timeout") return mod("timeout");
 
-  // ───────── WARN SYSTEM ─────────
+  // ───────── WARN ─────────
 
   if (commandName === "warn") {
     await i.deferReply();
@@ -355,11 +339,9 @@ client.on("interactionCreate", async i => {
     const list = warns[user.id] || [];
 
     return i.reply({
-      embeds: [
-        embed("Warnings", 0x3498db, [
-          { name: user.tag, value: list.join("\n") || "None" }
-        ])
-      ]
+      embeds: [embed("Warnings", 0x3498db, [
+        { name: user.tag, value: list.join("\n") || "None" }
+      ])]
     });
   }
 });
@@ -367,10 +349,5 @@ client.on("interactionCreate", async i => {
 // ─────────────────────────────
 // LOGIN
 // ─────────────────────────────
-
-if (!process.env.TOKEN) {
-  console.log("Missing TOKEN");
-  process.exit(1);
-}
 
 client.login(process.env.TOKEN);
