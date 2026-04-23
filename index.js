@@ -27,6 +27,7 @@ const client = new Client({
 // ─────────────────────────────
 
 const DB_FILE = "./warns.json";
+
 let warns = fs.existsSync(DB_FILE)
   ? JSON.parse(fs.readFileSync(DB_FILE))
   : {};
@@ -36,7 +37,7 @@ function saveDB() {
 }
 
 // ─────────────────────────────
-// EMBED
+// EMBEDS
 // ─────────────────────────────
 
 function embed(title, color, fields = []) {
@@ -48,7 +49,7 @@ function embed(title, color, fields = []) {
 }
 
 // ─────────────────────────────
-// FILTER LIST
+// FILTER DATABASE
 // ─────────────────────────────
 
 const filters = {
@@ -62,7 +63,7 @@ const filters = {
 };
 
 // ─────────────────────────────
-// STATUS (WATCHING SERVERS)
+// LIVE STATUS (WATCHING SERVERS)
 // ─────────────────────────────
 
 function updateStatus() {
@@ -83,8 +84,8 @@ function updateStatus() {
 
 const commands = [
 
-  new SlashCommandBuilder().setName("ping").setDescription("Ping bot"),
-  new SlashCommandBuilder().setName("help").setDescription("Commands list"),
+  new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
+  new SlashCommandBuilder().setName("help").setDescription("Show commands"),
   new SlashCommandBuilder().setName("about").setDescription("Bot info"),
   new SlashCommandBuilder().setName("analytics").setDescription("Server stats"),
 
@@ -92,14 +93,18 @@ const commands = [
     .setName("say")
     .setDescription("Send message")
     .addStringOption(o =>
-      o.setName("message").setRequired(true)
+      o.setName("message")
+        .setDescription("Message")
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("checkall")
     .setDescription("Check website against all filters")
     .addStringOption(o =>
-      o.setName("url").setRequired(true)
+      o.setName("url")
+        .setDescription("Website URL")
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
@@ -212,8 +217,8 @@ client.on("interactionCreate", async i => {
   if (commandName === "about")
     return i.reply({
       embeds: [embed("About Bot", 0x9b59b6, [
-        { name: "Servers", value: `${client.guilds.cache.size}` },
-        { name: "Status", value: "Watching servers live 👀" }
+        { name: "Servers Watching", value: `${client.guilds.cache.size}` },
+        { name: "Status", value: "Live monitoring 👀" }
       ])]
     });
 
@@ -232,26 +237,54 @@ client.on("interactionCreate", async i => {
     return i.editReply({ embeds: [embed("Sent", 0x2ecc71)] });
   }
 
-  // ───────── CHECKALL ─────────
+  // ───────── CHECKALL (FIXED RAILWAY SAFE) ─────────
 
   if (commandName === "checkall") {
     await i.deferReply();
 
     let url = i.options.getString("url");
+    if (!url) return i.editReply("❌ No URL provided");
+
     if (!url.startsWith("http")) url = "https://" + url;
 
     let results = [];
     let category = "Unknown";
 
     try {
-      const res = await fetch(url);
-      const text = await res.text().catch(() => "");
+      let res;
+
+      if (global.fetch) {
+        res = await fetch(url).catch(() => null);
+      } else {
+        const https = require("https");
+
+        res = await new Promise(resolve => {
+          https.get(url, r => resolve(r)).on("error", () => resolve(null));
+        });
+      }
+
+      if (!res) {
+        return i.editReply({
+          embeds: [embed("CHECKALL", 0xe74c3c, [
+            { name: "URL", value: url },
+            { name: "Result", value: "❌ Unreachable / Blocked" }
+          ])]
+        });
+      }
+
+      let text = "";
+      try {
+        text = await res.text?.() || "";
+      } catch {
+        text = "";
+      }
+
       const lower = text.toLowerCase();
 
-      if (lower.includes("video")) category = "Video";
       if (lower.includes("game")) category = "Gaming";
       if (lower.includes("education")) category = "Education";
-      if (lower.includes("social")) category = "Social";
+      if (lower.includes("video")) category = "Video";
+      if (lower.includes("social")) category = "Social Media";
 
       let blocked = [];
 
@@ -268,19 +301,21 @@ client.on("interactionCreate", async i => {
 
       return i.editReply({
         embeds: [
-          embed("🌐 CHECKALL REPORT", blocked.length ? 0xe74c3c : 0x2ecc71, [
+          embed("🌐 CHECKALL", blocked.length ? 0xe74c3c : 0x2ecc71, [
             { name: "URL", value: url },
-            { name: "Category", value: category },
+            { name: "Category Guess", value: category },
             { name: "Status", value: blocked.length ? "Blocked" : "Unblocked" },
             { name: "Filters", value: results.join("\n") }
           ])
         ]
       });
 
-    } catch {
+    } catch (err) {
+      console.error(err);
+
       return i.editReply({
-        embeds: [embed("Error", 0xe74c3c, [
-          { name: "Result", value: "Site unreachable" }
+        embeds: [embed("ERROR", 0xe74c3c, [
+          { name: "Result", value: "Internal error or request failed" }
         ])]
       });
     }
@@ -314,7 +349,7 @@ client.on("interactionCreate", async i => {
   if (commandName === "ban") return mod("ban");
   if (commandName === "timeout") return mod("timeout");
 
-  // ───────── WARN ─────────
+  // ───────── WARN SYSTEM ─────────
 
   if (commandName === "warn") {
     await i.deferReply();
