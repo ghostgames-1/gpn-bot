@@ -15,10 +15,7 @@ const {
 // ─────────────────────────────
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers
-  ]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
 
 // ─────────────────────────────
@@ -43,7 +40,7 @@ function modEmbed(title, color, user, reason) {
 }
 
 // ─────────────────────────────
-// 👀 STATUS SYSTEM
+// 👀 STATUS
 // ─────────────────────────────
 
 function updateStatus() {
@@ -56,7 +53,7 @@ function updateStatus() {
 }
 
 // ─────────────────────────────
-// COMMANDS (GUILD ONLY - CLEAN)
+// COMMANDS (CLEAN ONLY)
 // ─────────────────────────────
 
 const commands = [
@@ -110,34 +107,48 @@ const commands = [
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// 🚀 REGISTER (ONLY GUILD + NO GLOBAL COMMANDS)
+// 🚨 FULL RESET (GLOBAL + GUILD)
+// ─────────────────────────────
+
+async function resetAllCommands() {
+  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+
+  console.log("🧹 Clearing GLOBAL commands...");
+  await rest.put(
+    Routes.applicationCommands(client.application.id),
+    { body: [] }
+  );
+
+  const guilds = await client.guilds.fetch();
+
+  for (const [, guild] of guilds) {
+    console.log(`🧹 Clearing guild ${guild.id}`);
+
+    await rest.put(
+      Routes.applicationGuildCommands(client.application.id, guild.id),
+      { body: [] }
+    );
+  }
+
+  console.log("✅ All commands cleared");
+}
+
+// ─────────────────────────────
+// REGISTER CLEAN COMMANDS
 // ─────────────────────────────
 
 async function registerCommands() {
-  try {
-    const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-    const guilds = await client.guilds.fetch();
+  const guilds = await client.guilds.fetch();
 
-    for (const [, guild] of guilds) {
+  for (const [, guild] of guilds) {
+    await rest.put(
+      Routes.applicationGuildCommands(client.application.id, guild.id),
+      { body: commands }
+    );
 
-      // ❌ DELETE OLD GUILD COMMANDS FIRST (FIX DUPES)
-      await rest.put(
-        Routes.applicationGuildCommands(client.application.id, guild.id),
-        { body: [] }
-      );
-
-      // ➕ ADD CLEAN COMMANDS
-      await rest.put(
-        Routes.applicationGuildCommands(client.application.id, guild.id),
-        { body: commands }
-      );
-
-      console.log(`✅ Synced clean commands in ${guild.id}`);
-    }
-
-  } catch (err) {
-    console.error("Command register error:", err);
+    console.log(`✅ Synced ${guild.id}`);
   }
 }
 
@@ -148,8 +159,12 @@ async function registerCommands() {
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  await new Promise(r => setTimeout(r, 2000));
+  await new Promise(r => setTimeout(r, 3000));
 
+  // 🔥 CLEAN EVERYTHING FIRST (FIX DUPLICATES)
+  await resetAllCommands();
+
+  // ➕ REBUILD CLEAN COMMANDS
   await registerCommands();
 
   updateStatus();
@@ -158,14 +173,14 @@ client.once("ready", async () => {
 });
 
 // ─────────────────────────────
-// LIVE STATUS UPDATE
+// STATUS UPDATE
 // ─────────────────────────────
 
 client.on("guildCreate", updateStatus);
 client.on("guildDelete", updateStatus);
 
 // ─────────────────────────────
-// INTERACTIONS (NO MORE FAILED TO INTERACT)
+// INTERACTIONS (FIXED FAIL TO INTERACT)
 // ─────────────────────────────
 
 client.on("interactionCreate", async (i) => {
