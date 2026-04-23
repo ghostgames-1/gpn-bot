@@ -7,10 +7,6 @@ const {
   REST,
   Routes,
   SlashCommandBuilder,
-  PermissionsBitField,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
-  ChannelType,
   EmbedBuilder
 } = require("discord.js");
 
@@ -30,8 +26,6 @@ const client = new Client({
 // ─────────────────────────────
 
 const warns = new Map();
-const autoroles = new Map();
-const commandRoles = new Map();
 
 // ─────────────────────────────
 // EMBED
@@ -49,7 +43,7 @@ function modEmbed(title, color, user, reason) {
 }
 
 // ─────────────────────────────
-// 👀 LIVE STATUS
+// 👀 STATUS SYSTEM
 // ─────────────────────────────
 
 function updateStatus() {
@@ -62,7 +56,7 @@ function updateStatus() {
 }
 
 // ─────────────────────────────
-// COMMANDS (GUILD ONLY)
+// COMMANDS (GUILD ONLY - CLEAN)
 // ─────────────────────────────
 
 const commands = [
@@ -116,7 +110,7 @@ const commands = [
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// 🚀 REGISTER (GUILD ONLY + NO DUPES)
+// 🚀 REGISTER (ONLY GUILD + NO GLOBAL COMMANDS)
 // ─────────────────────────────
 
 async function registerCommands() {
@@ -127,7 +121,7 @@ async function registerCommands() {
 
     for (const [, guild] of guilds) {
 
-      // 🧹 CLEAR OLD COMMANDS FIRST (FIX DUPLICATES)
+      // ❌ DELETE OLD GUILD COMMANDS FIRST (FIX DUPES)
       await rest.put(
         Routes.applicationGuildCommands(client.application.id, guild.id),
         { body: [] }
@@ -139,11 +133,11 @@ async function registerCommands() {
         { body: commands }
       );
 
-      console.log(`✅ Synced & cleaned ${guild.id}`);
+      console.log(`✅ Synced clean commands in ${guild.id}`);
     }
 
   } catch (err) {
-    console.error("Command error:", err);
+    console.error("Command register error:", err);
   }
 }
 
@@ -164,20 +158,20 @@ client.once("ready", async () => {
 });
 
 // ─────────────────────────────
-// LIVE STATUS UPDATES
+// LIVE STATUS UPDATE
 // ─────────────────────────────
 
 client.on("guildCreate", updateStatus);
 client.on("guildDelete", updateStatus);
 
 // ─────────────────────────────
-// INTERACTIONS (FIXED “FAILED TO INTERACT”)
+// INTERACTIONS (NO MORE FAILED TO INTERACT)
 // ─────────────────────────────
 
 client.on("interactionCreate", async (i) => {
   if (!i.isChatInputCommand()) return;
 
-  const { commandName, guild, member } = i;
+  const { commandName, guild } = i;
 
   // 🏓 PING
   if (commandName === "ping") {
@@ -188,49 +182,63 @@ client.on("interactionCreate", async (i) => {
   if (commandName === "kick") {
     await i.deferReply();
 
-    const user = i.options.getUser("user");
-    const reason = i.options.getString("reason") || "No reason";
+    try {
+      const user = i.options.getUser("user");
+      const reason = i.options.getString("reason") || "No reason";
 
-    const m = await guild.members.fetch(user.id).catch(() => null);
-    if (!m) return i.editReply("User not found");
+      const m = await guild.members.fetch(user.id);
+      await m.kick(reason);
 
-    await m.kick(reason);
+      return i.editReply({
+        embeds: [modEmbed("Kicked", 0xffa500, user, reason)]
+      });
 
-    return i.editReply({
-      embeds: [modEmbed("Kicked", 0xffa500, user, reason)]
-    });
+    } catch (err) {
+      console.error(err);
+      return i.editReply("❌ Failed to kick user");
+    }
   }
 
   // 🔨 BAN
   if (commandName === "ban") {
     await i.deferReply();
 
-    const user = i.options.getUser("user");
-    const reason = i.options.getString("reason") || "No reason";
+    try {
+      const user = i.options.getUser("user");
+      const reason = i.options.getString("reason") || "No reason";
 
-    const m = await guild.members.fetch(user.id).catch(() => null);
-    if (!m) return i.editReply("User not found");
+      const m = await guild.members.fetch(user.id);
+      await m.ban({ reason });
 
-    await m.ban({ reason });
+      return i.editReply({
+        embeds: [modEmbed("Banned", 0xff0000, user, reason)]
+      });
 
-    return i.editReply({
-      embeds: [modEmbed("Banned", 0xff0000, user, reason)]
-    });
+    } catch (err) {
+      console.error(err);
+      return i.editReply("❌ Failed to ban user");
+    }
   }
 
   // ⚠ WARN
   if (commandName === "warn") {
     await i.deferReply();
 
-    const user = i.options.getUser("user");
-    const reason = i.options.getString("reason");
+    try {
+      const user = i.options.getUser("user");
+      const reason = i.options.getString("reason");
 
-    if (!warns.has(user.id)) warns.set(user.id, []);
-    warns.get(user.id).push(reason);
+      if (!warns.has(user.id)) warns.set(user.id, []);
+      warns.get(user.id).push(reason);
 
-    return i.editReply({
-      embeds: [modEmbed("Warned", 0xffff00, user, reason)]
-    });
+      return i.editReply({
+        embeds: [modEmbed("Warned", 0xffff00, user, reason)]
+      });
+
+    } catch (err) {
+      console.error(err);
+      return i.editReply("❌ Failed to warn user");
+    }
   }
 
   // 📊 WARNINGS
@@ -252,25 +260,17 @@ client.on("interactionCreate", async (i) => {
   if (commandName === "clear") {
     await i.deferReply();
 
-    const amt = Math.min(i.options.getInteger("amount"), 100);
-    await i.channel.bulkDelete(amt, true);
+    try {
+      const amt = Math.min(i.options.getInteger("amount"), 100);
+      await i.channel.bulkDelete(amt, true);
 
-    return i.editReply("🧹 Cleared messages");
+      return i.editReply("🧹 Cleared messages");
+
+    } catch (err) {
+      console.error(err);
+      return i.editReply("❌ Failed to clear messages");
+    }
   }
-});
-
-// ─────────────────────────────
-// AUTOROLE
-// ─────────────────────────────
-
-client.on("guildMemberAdd", member => {
-  const roleId = autoroles.get(member.guild.id);
-  if (!roleId) return;
-
-  const role = member.guild.roles.cache.get(roleId);
-  if (!role) return;
-
-  member.roles.add(role).catch(() => {});
 });
 
 // ─────────────────────────────
