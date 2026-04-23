@@ -10,7 +10,8 @@ const {
   Routes,
   SlashCommandBuilder,
   EmbedBuilder,
-  PermissionsBitField
+  PermissionsBitField,
+  ActivityType
 } = require("discord.js");
 
 // ─────────────────────────────
@@ -22,7 +23,7 @@ const client = new Client({
 });
 
 // ─────────────────────────────
-// DATABASE (WARNS)
+// WARN DATABASE
 // ─────────────────────────────
 
 const DB_FILE = "./warns.json";
@@ -35,7 +36,7 @@ function saveDB() {
 }
 
 // ─────────────────────────────
-// EMBED
+// EMBED HELPER
 // ─────────────────────────────
 
 function embed(title, color, fields = []) {
@@ -47,44 +48,63 @@ function embed(title, color, fields = []) {
 }
 
 // ─────────────────────────────
-// STATUS
+// FILTER SIGNATURES (CHECKLINK)
+// ─────────────────────────────
+
+const filters = {
+  fortiguard: ["fortiguard", "fortinet"],
+  goguardian: ["goguardian"],
+  lightspeed: ["lightspeed", "relay.school"],
+  securly: ["securly"],
+  blocksi: ["blocksi"],
+  linewize: ["linewize", "familyzone"],
+  contentkeeper: ["contentkeeper"]
+};
+
+// ─────────────────────────────
+// STATUS LIVE WATCHING SERVERS
 // ─────────────────────────────
 
 function updateStatus() {
   if (!client.user) return;
-  client.user.setActivity(`${client.guilds.cache.size} servers`, {
-    type: 3
+
+  client.user.setPresence({
+    activities: [
+      {
+        name: `${client.guilds.cache.size} servers`,
+        type: ActivityType.Watching
+      }
+    ],
+    status: "online"
   });
 }
 
 // ─────────────────────────────
-// COMMANDS (ALL VALID)
+// COMMANDS
 // ─────────────────────────────
 
 const commands = [
 
-  new SlashCommandBuilder()
-    .setName("ping")
-    .setDescription("Check bot latency"),
-
-  new SlashCommandBuilder()
-    .setName("help")
-    .setDescription("Show all commands"),
-
-  new SlashCommandBuilder()
-    .setName("about")
-    .setDescription("Show bot info"),
-
-  new SlashCommandBuilder()
-    .setName("analytics")
-    .setDescription("View server analytics"),
+  new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
+  new SlashCommandBuilder().setName("help").setDescription("Show commands"),
+  new SlashCommandBuilder().setName("about").setDescription("Bot info"),
+  new SlashCommandBuilder().setName("analytics").setDescription("Server stats"),
 
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("Send a message")
+    .setDescription("Send message")
     .addStringOption(o =>
       o.setName("message")
-        .setDescription("Message to send")
+        .setDescription("Message")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("checklink")
+    .setDescription("Check website accessibility + filter detection")
+    .addStringOption(o =>
+      o.setName("url")
+        .setDescription("Website URL")
         .setRequired(true)
     ),
 
@@ -92,82 +112,56 @@ const commands = [
     .setName("kick")
     .setDescription("Kick a user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to kick")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason for kick")
+      o.setName("reason").setDescription("Reason")
     ),
 
   new SlashCommandBuilder()
     .setName("ban")
     .setDescription("Ban a user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to ban")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason for ban")
+      o.setName("reason").setDescription("Reason")
     ),
 
   new SlashCommandBuilder()
     .setName("timeout")
     .setDescription("Timeout a user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to timeout")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
     .addIntegerOption(o =>
-      o.setName("minutes")
-        .setDescription("Duration in minutes")
-        .setRequired(true)
+      o.setName("minutes").setDescription("Minutes").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason for timeout")
+      o.setName("reason").setDescription("Reason")
     ),
 
   new SlashCommandBuilder()
     .setName("warn")
     .setDescription("Warn a user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to warn")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason for warning")
-        .setRequired(true)
+      o.setName("reason").setDescription("Reason").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("warnings")
-    .setDescription("View user warnings")
+    .setDescription("View warnings")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to check")
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("8ball")
-    .setDescription("Ask the magic 8-ball")
-    .addStringOption(o =>
-      o.setName("question")
-        .setDescription("Your question")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
 
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// REGISTER (GUILD ONLY SAFE)
+// REGISTER COMMANDS (GUILD ONLY SAFE)
 // ─────────────────────────────
 
 async function registerCommands() {
@@ -175,22 +169,16 @@ async function registerCommands() {
 
   await client.application.fetch();
 
-  console.log("📦 Registering commands:");
-  console.log(commands.map(c => c.name));
-
   const guilds = await client.guilds.fetch();
 
   for (const [, guild] of guilds) {
-    try {
-      await rest.put(
-        Routes.applicationGuildCommands(client.application.id, guild.id),
-        { body: commands }
-      );
-      console.log(`✅ Synced ${guild.id}`);
-    } catch (err) {
-      console.error(`❌ Failed ${guild.id}`, err);
-    }
+    await rest.put(
+      Routes.applicationGuildCommands(client.application.id, guild.id),
+      { body: commands }
+    );
   }
+
+  console.log("✅ Commands synced (guild only)");
 }
 
 // ─────────────────────────────
@@ -204,29 +192,8 @@ client.once("ready", async () => {
   updateStatus();
 
   console.log(`👀 Watching ${client.guilds.cache.size} servers`);
-});
 
-// ─────────────────────────────
-// ANTI RAID
-// ─────────────────────────────
-
-const joinMap = new Map();
-
-client.on("guildMemberAdd", member => {
-  const now = Date.now();
-  const arr = joinMap.get(member.guild.id) || [];
-
-  arr.push(now);
-  const recent = arr.filter(t => now - t < 10000);
-  joinMap.set(member.guild.id, recent);
-
-  if (recent.length >= 5) {
-    member.guild.channels.cache.forEach(ch => {
-      if (ch.isTextBased()) {
-        ch.send("🛡 Anti-raid triggered: too many joins");
-      }
-    });
-  }
+  setInterval(updateStatus, 15000); // live count update
 });
 
 // ─────────────────────────────
@@ -238,7 +205,7 @@ client.on("interactionCreate", async i => {
 
   const { commandName, guild } = i;
 
-  // ─ BASIC ─
+  // ───────── BASIC ─────────
 
   if (commandName === "ping") {
     return i.reply({ embeds: [embed("🏓 Pong", 0x2ecc71)] });
@@ -246,68 +213,124 @@ client.on("interactionCreate", async i => {
 
   if (commandName === "help") {
     return i.reply({
-      embeds: [embed("📋 Commands", 0x3498db, [
-        { name: "General", value: "/ping /help /about /8ball" },
-        { name: "Moderation", value: "/kick /ban /timeout /warn /warnings" },
-        { name: "Other", value: "/say /analytics" }
-      ])]
+      embeds: [
+        embed("Help", 0x3498db, [
+          { name: "Commands", value: "/ping /help /about /analytics /say /checklink /kick /ban /timeout /warn /warnings" }
+        ])
+      ]
     });
   }
 
   if (commandName === "about") {
     return i.reply({
-      embeds: [embed("🤖 About Bot", 0x9b59b6, [
-        { name: "Servers", value: `${client.guilds.cache.size}`, inline: true },
-        { name: "Users", value: `${client.users.cache.size}`, inline: true },
-        { name: "Version", value: "v1.0", inline: true }
-      ])]
+      embeds: [
+        embed("About Bot", 0x9b59b6, [
+          { name: "Servers Watching", value: `${client.guilds.cache.size}` },
+          { name: "Status", value: "Live monitoring enabled 👀" }
+        ])
+      ]
     });
   }
 
   if (commandName === "analytics") {
     return i.reply({
-      embeds: [embed("📊 Analytics", 0x1abc9c, [
-        { name: "Servers", value: `${client.guilds.cache.size}` },
-        { name: "Users", value: `${client.users.cache.size}` }
-      ])]
+      embeds: [
+        embed("Analytics", 0x1abc9c, [
+          { name: "Servers", value: `${client.guilds.cache.size}` }
+        ])
+      ]
     });
   }
+
+  // ───────── SAY ─────────
 
   if (commandName === "say") {
     await i.deferReply({ ephemeral: true });
     await i.channel.send(i.options.getString("message"));
-    return i.editReply({ embeds: [embed("✅ Sent", 0x2ecc71)] });
+    return i.editReply({ embeds: [embed("Sent", 0x2ecc71)] });
   }
 
-  // ─ MODERATION ─
+  // ───────── CHECKLINK ─────────
 
-  if (["kick","ban","timeout"].includes(commandName)) {
+  if (commandName === "checklink") {
     await i.deferReply();
 
-    try {
-      const user = i.options.getUser("user");
-      const reason = i.options.getString("reason") || "No reason";
-      const member = await guild.members.fetch(user.id);
+    let url = i.options.getString("url");
+    if (!url.startsWith("http")) url = "https://" + url;
 
-      if (commandName === "kick") await member.kick(reason);
-      if (commandName === "ban") await member.ban({ reason });
-      if (commandName === "timeout") {
-        const mins = i.options.getInteger("minutes");
-        await member.timeout(mins * 60000, reason);
+    let result = "Unknown";
+    let color = 0x3498db;
+    let detected = "None";
+
+    try {
+      const res = await fetch(url);
+      const text = await res.text().catch(() => "");
+      const lower = text.toLowerCase();
+
+      for (const [name, sigs] of Object.entries(filters)) {
+        if (sigs.some(s => lower.includes(s))) {
+          detected = name;
+          result = "⚠ Filter Detected";
+          color = 0xf1c40f;
+          break;
+        }
       }
 
-      return i.editReply({
-        embeds: [embed(`✅ ${commandName.toUpperCase()}`, 0xe67e22, [
+      if (res.ok && detected === "None") {
+        result = "✅ Reachable";
+        color = 0x2ecc71;
+      } else if (!res.ok) {
+        result = `❌ Blocked (HTTP ${res.status})`;
+        color = 0xe74c3c;
+      }
+
+    } catch {
+      result = "❌ Unreachable";
+      color = 0xe74c3c;
+    }
+
+    return i.editReply({
+      embeds: [
+        embed("Website Check", color, [
+          { name: "URL", value: url },
+          { name: "Result", value: result },
+          { name: "Detected Filter", value: detected }
+        ])
+      ]
+    });
+  }
+
+  // ───────── MODERATION ─────────
+
+  async function modAction(type) {
+    await i.deferReply();
+
+    const user = i.options.getUser("user");
+    const reason = i.options.getString("reason") || "No reason";
+    const member = await guild.members.fetch(user.id);
+
+    if (type === "kick") await member.kick(reason);
+    if (type === "ban") await member.ban({ reason });
+    if (type === "timeout") {
+      const mins = i.options.getInteger("minutes");
+      await member.timeout(mins * 60000, reason);
+    }
+
+    return i.editReply({
+      embeds: [
+        embed(`${type.toUpperCase()} DONE`, 0xe67e22, [
           { name: "User", value: user.tag },
           { name: "Reason", value: reason }
-        ])]
-      });
-
-    } catch (e) {
-      console.error(e);
-      return i.editReply({ embeds: [embed("❌ Error", 0xe74c3c)] });
-    }
+        ])
+      ]
+    });
   }
+
+  if (commandName === "kick") return modAction("kick");
+  if (commandName === "ban") return modAction("ban");
+  if (commandName === "timeout") return modAction("timeout");
+
+  // ───────── WARN SYSTEM ─────────
 
   if (commandName === "warn") {
     await i.deferReply();
@@ -320,7 +343,7 @@ client.on("interactionCreate", async i => {
     saveDB();
 
     return i.editReply({
-      embeds: [embed("⚠ Warned", 0xf1c40f, [
+      embeds: [embed("Warned", 0xf1c40f, [
         { name: "User", value: user.tag },
         { name: "Reason", value: reason }
       ])]
@@ -332,18 +355,11 @@ client.on("interactionCreate", async i => {
     const list = warns[user.id] || [];
 
     return i.reply({
-      embeds: [embed("📊 Warnings", 0x3498db, [
-        { name: user.tag, value: list.join("\n") || "None" }
-      ])]
-    });
-  }
-
-  if (commandName === "8ball") {
-    const answers = ["Yes","No","Maybe","Definitely","Never"];
-    return i.reply({
-      embeds: [embed("🎱 8Ball", 0x2ecc71, [
-        { name: "Answer", value: answers[Math.floor(Math.random()*answers.length)] }
-      ])]
+      embeds: [
+        embed("Warnings", 0x3498db, [
+          { name: user.tag, value: list.join("\n") || "None" }
+        ])
+      ]
     });
   }
 });
