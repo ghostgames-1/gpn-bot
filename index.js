@@ -1,3 +1,5 @@
+const fs = require("fs");
+
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
@@ -7,7 +9,8 @@ const {
   REST,
   Routes,
   SlashCommandBuilder,
-  EmbedBuilder
+  EmbedBuilder,
+  PermissionsBitField
 } = require("discord.js");
 
 // ─────────────────────────────
@@ -15,15 +18,38 @@ const {
 // ─────────────────────────────
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ]
 });
 
 // ─────────────────────────────
-// STORAGE
+// DATABASE (WARN STORAGE)
 // ─────────────────────────────
 
-const warns = new Map();
-const commandRoles = new Map();
+const DB_FILE = "./warns.json";
+
+let warns = {};
+
+if (fs.existsSync(DB_FILE)) {
+  warns = JSON.parse(fs.readFileSync(DB_FILE));
+}
+
+function saveDB() {
+  fs.writeFileSync(DB_FILE, JSON.stringify(warns, null, 2));
+}
+
+// ─────────────────────────────
+// ANTI RAID / NUKE SYSTEM
+// ─────────────────────────────
+
+const joinTracker = new Map();
+
+const ANTI_RAID_LIMIT = 5; // joins
+const ANTI_RAID_WINDOW = 10000; // 10 sec
+
+let antiRaidEnabled = true;
 
 // ─────────────────────────────
 // EMBED
@@ -54,25 +80,24 @@ function updateStatus() {
 }
 
 // ─────────────────────────────
-// COMMAND LIST (FULL RESTORED SET)
+// COMMANDS
 // ─────────────────────────────
 
 const commands = [
 
   new SlashCommandBuilder().setName("ping").setDescription("🏓 Ping bot"),
-
-  new SlashCommandBuilder().setName("help").setDescription("📋 Show all commands"),
+  new SlashCommandBuilder().setName("help").setDescription("📋 Help menu"),
 
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("📢 Send a message as bot")
+    .setDescription("📢 Send message")
     .addStringOption(o =>
       o.setName("message").setDescription("Message").setRequired(true)
     ),
 
   new SlashCommandBuilder()
-    .setName("ban")
-    .setDescription("🔨 Ban a user")
+    .setName("kick")
+    .setDescription("👢 Kick user")
     .addUserOption(o =>
       o.setName("user").setDescription("User").setRequired(true)
     )
@@ -81,8 +106,31 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
+    .setName("ban")
+    .setDescription("🔨 Ban user")
+    .addUserOption(o =>
+      o.setName("user").setDescription("User").setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName("reason").setDescription("Reason")
+    ),
+
+  new SlashCommandBuilder()
+    .setName("timeout")
+    .setDescription("⏳ Timeout user")
+    .addUserOption(o =>
+      o.setName("user").setDescription("User").setRequired(true)
+    )
+    .addIntegerOption(o =>
+      o.setName("minutes").setDescription("Minutes").setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName("reason").setDescription("Reason")
+    ),
+
+  new SlashCommandBuilder()
     .setName("warn")
-    .setDescription("⚠ Warn a user")
+    .setDescription("⚠ Warn user")
     .addUserOption(o =>
       o.setName("user").setDescription("User").setRequired(true)
     )
@@ -98,28 +146,12 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
-    .setName("timeout")
-    .setDescription("⏳ Timeout a user")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName("minutes").setDescription("Minutes").setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason").setDescription("Reason")
-    ),
-
-  new SlashCommandBuilder()
-    .setName("setcommandroles")
-    .setDescription("🔐 Set roles allowed for commands")
-    .addStringOption(o =>
-      o.setName("command").setDescription("Command name").setRequired(true)
-    ),
+    .setName("analytics")
+    .setDescription("📊 Server stats"),
 
   new SlashCommandBuilder()
     .setName("8ball")
-    .setDescription("🎱 Ask the magic 8-ball")
+    .setDescription("🎱 Ask question")
     .addStringOption(o =>
       o.setName("question").setDescription("Question").setRequired(true)
     )
@@ -127,7 +159,7 @@ const commands = [
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// REGISTER COMMANDS (GUILD ONLY SAFE)
+// REGISTER
 // ─────────────────────────────
 
 async function registerCommands() {
@@ -162,7 +194,40 @@ client.once("ready", async () => {
 });
 
 // ─────────────────────────────
-// INTERACTIONS (FULL POLISHED)
+// ANTI RAID SYSTEM
+// ─────────────────────────────
+
+client.on("guildMemberAdd", member => {
+  if (!antiRaidEnabled) return;
+
+  const now = Date.now();
+  const guildId = member.guild.id;
+
+  if (!joinTracker.has(guildId)) joinTracker.set(guildId, []);
+
+  const joins = joinTracker.get(guildId);
+
+  joins.push(now);
+
+  const recent = joins.filter(t => now - t < ANTI_RAID_WINDOW);
+
+  joinTracker.set(guildId, recent);
+
+  if (recent.length >= ANTI_RAID_LIMIT) {
+    member.guild.channels.cache.forEach(ch => {
+      if (ch.permissionsFor(member.guild.members.me)?.has("SendMessages")) {
+        ch.send("🛡 Anti-raid triggered: mass joins detected");
+      }
+    });
+
+    antiRaidEnabled = false;
+
+    setTimeout(() => antiRaidEnabled = true, 30000);
+  }
+});
+
+// ─────────────────────────────
+// INTERACTIONS
 // ─────────────────────────────
 
 client.on("interactionCreate", async (i) => {
@@ -175,29 +240,30 @@ client.on("interactionCreate", async (i) => {
     return i.reply("🏓 Pong!");
   }
 
-  // 📋 HELP
-  if (commandName === "help") {
-    return i.reply({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle("📋 Commands")
-          .setColor(0x3498db)
-          .setDescription(
-            "/ping\n/say\n/ban\n/warn\n/warnings\n/timeout\n/8ball\n/setcommandroles"
-          )
-      ]
-    });
-  }
-
   // 📢 SAY
   if (commandName === "say") {
     await i.deferReply({ ephemeral: true });
-
-    const msg = i.options.getString("message");
-
-    await i.channel.send(msg);
-
+    await i.channel.send(i.options.getString("message"));
     return i.editReply("✅ Sent");
+  }
+
+  // 👢 KICK
+  if (commandName === "kick") {
+    await i.deferReply();
+
+    try {
+      const user = i.options.getUser("user");
+      const reason = i.options.getString("reason") || "No reason";
+
+      const m = await guild.members.fetch(user.id);
+      await m.kick(reason);
+
+      return i.editReply({ embeds: [modEmbed("Kicked", 0xffa500, user, reason)] });
+
+    } catch (e) {
+      console.error(e);
+      return i.editReply("❌ Failed kick");
+    }
   }
 
   // 🔨 BAN
@@ -211,44 +277,12 @@ client.on("interactionCreate", async (i) => {
       const m = await guild.members.fetch(user.id);
       await m.ban({ reason });
 
-      return i.editReply({
-        embeds: [modEmbed("Banned", 0xff0000, user, reason)]
-      });
+      return i.editReply({ embeds: [modEmbed("Banned", 0xff0000, user, reason)] });
 
-    } catch (err) {
-      console.error(err);
-      return i.editReply("❌ Failed to ban");
+    } catch (e) {
+      console.error(e);
+      return i.editReply("❌ Failed ban");
     }
-  }
-
-  // ⚠ WARN
-  if (commandName === "warn") {
-    await i.deferReply();
-
-    const user = i.options.getUser("user");
-    const reason = i.options.getString("reason");
-
-    if (!warns.has(user.id)) warns.set(user.id, []);
-    warns.get(user.id).push(reason);
-
-    return i.editReply({
-      embeds: [modEmbed("Warned", 0xffff00, user, reason)]
-    });
-  }
-
-  // 📊 WARNINGS
-  if (commandName === "warnings") {
-    const user = i.options.getUser("user");
-    const list = warns.get(user.id) || [];
-
-    return i.reply({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle("Warnings")
-          .setColor(0x3498db)
-          .setDescription(list.length ? list.join("\n") : "None")
-      ]
-    });
   }
 
   // ⏳ TIMEOUT
@@ -263,53 +297,56 @@ client.on("interactionCreate", async (i) => {
       const m = await guild.members.fetch(user.id);
       await m.timeout(mins * 60000, reason);
 
-      return i.editReply({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle("⏳ Timed Out")
-            .setColor(0xffff00)
-            .addFields(
-              { name: "User", value: user.tag },
-              { name: "Duration", value: `${mins} minutes` },
-              { name: "Reason", value: reason }
-            )
-        ]
-      });
+      return i.editReply("⏳ Timed out");
 
-    } catch (err) {
-      console.error(err);
+    } catch (e) {
+      console.error(e);
       return i.editReply("❌ Failed timeout");
     }
   }
 
-  // 🎱 8BALL
-  if (commandName === "8ball") {
-    const answers = [
-      "Yes", "No", "Maybe", "Absolutely", "Never",
-      "Ask again", "Definitely", "I doubt it"
-    ];
+  // ⚠ WARN (DB)
+  if (commandName === "warn") {
+    await i.deferReply();
 
-    const question = i.options.getString("question");
-    const answer = answers[Math.floor(Math.random() * answers.length)];
+    const user = i.options.getUser("user");
+    const reason = i.options.getString("reason");
 
+    if (!warns[user.id]) warns[user.id] = [];
+    warns[user.id].push(reason);
+
+    saveDB();
+
+    return i.editReply({ embeds: [modEmbed("Warned", 0xffff00, user, reason)] });
+  }
+
+  // 📊 WARNINGS
+  if (commandName === "warnings") {
+    const user = i.options.getUser("user");
+    const list = warns[user.id] || [];
+
+    return i.reply(list.length ? list.join("\n") : "No warnings");
+  }
+
+  // 📊 ANALYTICS
+  if (commandName === "analytics") {
     return i.reply({
       embeds: [
         new EmbedBuilder()
-          .setTitle("🎱 8-Ball")
-          .setColor(0x2ecc71)
+          .setTitle("📊 Server Analytics")
+          .setColor(0x3498db)
           .addFields(
-            { name: "Question", value: question },
-            { name: "Answer", value: answer }
+            { name: "Servers", value: `${client.guilds.cache.size}` },
+            { name: "Users", value: `${client.users.cache.size}` }
           )
       ]
     });
   }
 
-  // 🔐 SET COMMAND ROLES (basic placeholder safe version)
-  if (commandName === "setcommandroles") {
-    const cmd = i.options.getString("command");
-
-    return i.reply(`🔐 Role system set for **${cmd}** (system placeholder)`);
+  // 🎱 8BALL
+  if (commandName === "8ball") {
+    const answers = ["Yes", "No", "Maybe", "Absolutely", "Never"];
+    return i.reply(answers[Math.floor(Math.random() * answers.length)]);
   }
 });
 
