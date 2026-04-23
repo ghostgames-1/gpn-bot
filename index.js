@@ -1,4 +1,5 @@
 const fs = require("fs");
+const https = require("https");
 
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
@@ -10,8 +11,8 @@ const {
   Routes,
   SlashCommandBuilder,
   EmbedBuilder,
-  PermissionsBitField,
-  ActivityType
+  ActivityType,
+  PermissionsBitField
 } = require("discord.js");
 
 // ─────────────────────────────
@@ -23,7 +24,7 @@ const client = new Client({
 });
 
 // ─────────────────────────────
-// WARN DB
+// DATABASE (WARNS)
 // ─────────────────────────────
 
 const DB_FILE = "./warns.json";
@@ -37,7 +38,7 @@ function saveDB() {
 }
 
 // ─────────────────────────────
-// EMBEDS
+// EMBED HELPER
 // ─────────────────────────────
 
 function embed(title, color, fields = []) {
@@ -63,7 +64,7 @@ const filters = {
 };
 
 // ─────────────────────────────
-// LIVE STATUS (WATCHING SERVERS)
+// STATUS (WATCHING SERVERS LIVE)
 // ─────────────────────────────
 
 function updateStatus() {
@@ -79,37 +80,33 @@ function updateStatus() {
 }
 
 // ─────────────────────────────
-// COMMANDS
+// SLASH COMMANDS
 // ─────────────────────────────
 
 const commands = [
 
-  new SlashCommandBuilder().setName("ping").setDescription("Check bot latency"),
-  new SlashCommandBuilder().setName("help").setDescription("Show commands"),
-  new SlashCommandBuilder().setName("about").setDescription("Bot info"),
-  new SlashCommandBuilder().setName("analytics").setDescription("Server stats"),
+  new SlashCommandBuilder().setName("ping").setDescription("🏓 Ping bot"),
+  new SlashCommandBuilder().setName("help").setDescription("📋 Help menu"),
+  new SlashCommandBuilder().setName("about").setDescription("🤖 Bot info"),
+  new SlashCommandBuilder().setName("analytics").setDescription("📊 Server stats"),
 
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("Send message")
+    .setDescription("📢 Send message")
     .addStringOption(o =>
-      o.setName("message")
-        .setDescription("Message")
-        .setRequired(true)
+      o.setName("message").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("checkall")
-    .setDescription("Check website against all filters")
+    .setDescription("🌐 Check website against filters")
     .addStringOption(o =>
-      o.setName("url")
-        .setDescription("Website URL")
-        .setRequired(true)
+      o.setName("url").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("kick")
-    .setDescription("Kick user")
+    .setDescription("👢 Kick user")
     .addUserOption(o =>
       o.setName("user").setRequired(true)
     )
@@ -119,7 +116,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("Ban user")
+    .setDescription("🔨 Ban user")
     .addUserOption(o =>
       o.setName("user").setRequired(true)
     )
@@ -129,7 +126,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("timeout")
-    .setDescription("Timeout user")
+    .setDescription("⏳ Timeout user")
     .addUserOption(o =>
       o.setName("user").setRequired(true)
     )
@@ -142,7 +139,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("warn")
-    .setDescription("Warn user")
+    .setDescription("⚠ Warn user")
     .addUserOption(o =>
       o.setName("user").setRequired(true)
     )
@@ -152,7 +149,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("warnings")
-    .setDescription("View warnings")
+    .setDescription("📊 View warnings")
     .addUserOption(o =>
       o.setName("user").setRequired(true)
     )
@@ -160,24 +157,31 @@ const commands = [
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// REGISTER (GUILD ONLY)
+// REGISTER (SAFE GUILD ONLY)
 // ─────────────────────────────
 
 async function registerCommands() {
-  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+  try {
+    if (!client.user) return;
 
-  await client.application.fetch();
+    const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-  const guilds = await client.guilds.fetch();
+    const guilds = await client.guilds.fetch().catch(() => null);
+    if (!guilds) return;
 
-  for (const [, guild] of guilds) {
-    await rest.put(
-      Routes.applicationGuildCommands(client.application.id, guild.id),
-      { body: commands }
-    );
+    for (const [, guild] of guilds) {
+      if (!guild?.id) continue;
+
+      await rest.put(
+        Routes.applicationGuildCommands(client.user.id, guild.id),
+        { body: commands }
+      );
+    }
+
+    console.log("✅ Guild commands synced");
+  } catch (err) {
+    console.error("REGISTER ERROR:", err);
   }
-
-  console.log("✅ Commands synced");
 }
 
 // ─────────────────────────────
@@ -191,6 +195,8 @@ client.once("ready", async () => {
   updateStatus();
 
   setInterval(updateStatus, 15000);
+
+  console.log(`👀 Watching ${client.guilds.cache.size} servers`);
 });
 
 // ─────────────────────────────
@@ -218,7 +224,7 @@ client.on("interactionCreate", async i => {
     return i.reply({
       embeds: [embed("About Bot", 0x9b59b6, [
         { name: "Servers Watching", value: `${client.guilds.cache.size}` },
-        { name: "Status", value: "Live monitoring 👀" }
+        { name: "Status", value: "Online 👀" }
       ])]
     });
 
@@ -229,50 +235,40 @@ client.on("interactionCreate", async i => {
       ])]
     });
 
-  // ───────── SAY ─────────
-
   if (commandName === "say") {
     await i.deferReply({ ephemeral: true });
     await i.channel.send(i.options.getString("message"));
     return i.editReply({ embeds: [embed("Sent", 0x2ecc71)] });
   }
 
-  // ───────── CHECKALL (FIXED RAILWAY SAFE) ─────────
+  // ───────── CHECKALL (FIXED SAFE VERSION) ─────────
 
   if (commandName === "checkall") {
     await i.deferReply();
 
     let url = i.options.getString("url");
-    if (!url) return i.editReply("❌ No URL provided");
+    if (!url) return i.editReply("No URL");
 
     if (!url.startsWith("http")) url = "https://" + url;
 
     let results = [];
-    let category = "Unknown";
 
     try {
-      let res;
-
-      if (global.fetch) {
-        res = await fetch(url).catch(() => null);
-      } else {
-        const https = require("https");
-
-        res = await new Promise(resolve => {
-          https.get(url, r => resolve(r)).on("error", () => resolve(null));
-        });
-      }
+      const res = await new Promise(resolve => {
+        https.get(url, r => resolve(r))
+          .on("error", () => resolve(null));
+      });
 
       if (!res) {
         return i.editReply({
           embeds: [embed("CHECKALL", 0xe74c3c, [
-            { name: "URL", value: url },
-            { name: "Result", value: "❌ Unreachable / Blocked" }
+            { name: "Result", value: "Unreachable / Blocked" }
           ])]
         });
       }
 
       let text = "";
+
       try {
         text = await res.text?.() || "";
       } catch {
@@ -281,43 +277,21 @@ client.on("interactionCreate", async i => {
 
       const lower = text.toLowerCase();
 
-      if (lower.includes("game")) category = "Gaming";
-      if (lower.includes("education")) category = "Education";
-      if (lower.includes("video")) category = "Video";
-      if (lower.includes("social")) category = "Social Media";
-
-      let blocked = [];
-
       for (const [name, sigs] of Object.entries(filters)) {
         const hit = sigs.some(s => lower.includes(s));
-
-        if (hit) {
-          results.push(`❌ ${name}`);
-          blocked.push(name);
-        } else {
-          results.push(`✔ ${name}`);
-        }
+        results.push(hit ? `❌ ${name}` : `✔ ${name}`);
       }
 
       return i.editReply({
-        embeds: [
-          embed("🌐 CHECKALL", blocked.length ? 0xe74c3c : 0x2ecc71, [
-            { name: "URL", value: url },
-            { name: "Category Guess", value: category },
-            { name: "Status", value: blocked.length ? "Blocked" : "Unblocked" },
-            { name: "Filters", value: results.join("\n") }
-          ])
-        ]
+        embeds: [embed("CHECKALL", 0x2ecc71, [
+          { name: "URL", value: url },
+          { name: "Filters", value: results.join("\n") }
+        ])]
       });
 
     } catch (err) {
       console.error(err);
-
-      return i.editReply({
-        embeds: [embed("ERROR", 0xe74c3c, [
-          { name: "Result", value: "Internal error or request failed" }
-        ])]
-      });
+      return i.editReply("Error running check");
     }
   }
 
