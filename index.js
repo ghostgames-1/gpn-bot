@@ -52,40 +52,40 @@ function createEmbed(title, color, fields = []) {
 }
 
 // ─────────────────────────────
-// COMMANDS
+// COMMANDS (ABOUT INCLUDED)
 // ─────────────────────────────
 
 const commands = [
 
   new SlashCommandBuilder().setName("ping").setDescription("Check latency"),
 
-  new SlashCommandBuilder().setName("help").setDescription("View all commands"),
+  new SlashCommandBuilder().setName("help").setDescription("View commands"),
 
   new SlashCommandBuilder().setName("about").setDescription("Bot info"),
 
   new SlashCommandBuilder()
     .setName("say")
     .setDescription("Send message")
-    .addStringOption(o => o.setName("message").setRequired(true).setDescription("Message")),
+    .addStringOption(o => o.setName("message").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("kick")
     .setDescription("Kick user")
-    .addUserOption(o => o.setName("user").setRequired(true).setDescription("User"))
-    .addStringOption(o => o.setName("reason").setDescription("Reason")),
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
   new SlashCommandBuilder()
     .setName("ban")
     .setDescription("Ban user")
-    .addUserOption(o => o.setName("user").setRequired(true).setDescription("User"))
-    .addStringOption(o => o.setName("reason").setDescription("Reason")),
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
   new SlashCommandBuilder()
     .setName("timeout")
     .setDescription("Timeout user")
-    .addUserOption(o => o.setName("user").setRequired(true).setDescription("User"))
-    .addIntegerOption(o => o.setName("minutes").setRequired(true).setDescription("Minutes"))
-    .addStringOption(o => o.setName("reason").setDescription("Reason")),
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addIntegerOption(o => o.setName("minutes").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
   new SlashCommandBuilder()
     .setName("warn")
@@ -104,24 +104,39 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("8ball")
-    .setDescription("Ask a question")
+    .setDescription("Ask question")
     .addStringOption(o => o.setName("question").setRequired(true))
 
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// REGISTER
+// 🔥 FIXED REGISTER FUNCTION
 // ─────────────────────────────
 
 async function registerCommands() {
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+
+  // ensure application is loaded
+  await client.application.fetch();
+
+  console.log("📦 Commands being registered:");
+  console.log(commands.map(c => c.name)); // DEBUG
+
   const guilds = await client.guilds.fetch();
 
   for (const [, guild] of guilds) {
-    await rest.put(
-      Routes.applicationGuildCommands(client.application.id, guild.id),
-      { body: commands }
-    );
+    try {
+      console.log(`🔄 Updating ${guild.id}`);
+
+      await rest.put(
+        Routes.applicationGuildCommands(client.application.id, guild.id),
+        { body: commands }
+      );
+
+      console.log(`✅ Synced ${guild.id}`);
+    } catch (err) {
+      console.error(`❌ Failed ${guild.id}`, err);
+    }
   }
 }
 
@@ -132,9 +147,10 @@ async function registerCommands() {
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  await client.application.fetch();
   await registerCommands();
   updateStatus();
+
+  console.log(`👀 Watching ${client.guilds.cache.size} servers`);
 });
 
 // ─────────────────────────────
@@ -154,9 +170,7 @@ client.on("guildMemberAdd", member => {
 
   if (recent.length >= 5) {
     member.guild.channels.cache.forEach(ch => {
-      if (ch.isTextBased()) {
-        ch.send("🛡 Anti-raid triggered");
-      }
+      if (ch.isTextBased()) ch.send("🛡 Anti-raid triggered");
     });
   }
 });
@@ -222,7 +236,7 @@ client.on("interactionCreate", async i => {
         ])]
       });
 
-    } catch (e) {
+    } catch {
       return i.editReply({ embeds: [createEmbed("Error", 0xe74c3c)] });
     }
   }
