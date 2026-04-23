@@ -7,7 +7,8 @@ const {
   REST,
   Routes,
   SlashCommandBuilder,
-  EmbedBuilder
+  EmbedBuilder,
+  PermissionsBitField
 } = require("discord.js");
 
 // ─────────────────────────────
@@ -40,7 +41,7 @@ function modEmbed(title, color, user, reason) {
 }
 
 // ─────────────────────────────
-// 👀 STATUS
+// STATUS
 // ─────────────────────────────
 
 function updateStatus() {
@@ -53,88 +54,55 @@ function updateStatus() {
 }
 
 // ─────────────────────────────
-// COMMANDS (CLEAN ONLY)
+// COMMANDS
 // ─────────────────────────────
 
 const commands = [
 
-  new SlashCommandBuilder().setName("ping").setDescription("🏓 Ping bot"),
+  new SlashCommandBuilder()
+    .setName("ping")
+    .setDescription("🏓 Check bot latency"),
 
   new SlashCommandBuilder()
-    .setName("kick")
-    .setDescription("👢 Kick user")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
-    )
+    .setName("say")
+    .setDescription("📢 Make the bot say something")
     .addStringOption(o =>
-      o.setName("reason").setDescription("Reason")
+      o.setName("message")
+        .setDescription("Message to send")
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
-    .setName("ban")
-    .setDescription("🔨 Ban user")
+    .setName("timeout")
+    .setDescription("⏳ Timeout a user")
     .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
+      o.setName("user")
+        .setDescription("User")
+        .setRequired(true)
     )
-    .addStringOption(o =>
-      o.setName("reason").setDescription("Reason")
-    ),
-
-  new SlashCommandBuilder()
-    .setName("warn")
-    .setDescription("⚠ Warn user")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason").setDescription("Reason").setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("warnings")
-    .setDescription("📊 View warnings")
-    .addUserOption(o =>
-      o.setName("user").setDescription("User").setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("clear")
-    .setDescription("🧹 Clear messages")
     .addIntegerOption(o =>
-      o.setName("amount").setDescription("Max 100").setRequired(true)
+      o.setName("minutes")
+        .setDescription("Duration in minutes")
+        .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName("reason")
+        .setDescription("Reason")
+    ),
+
+  new SlashCommandBuilder()
+    .setName("8ball")
+    .setDescription("🎱 Ask the magic 8-ball a question")
+    .addStringOption(o =>
+      o.setName("question")
+        .setDescription("Your question")
+        .setRequired(true)
     )
 
 ].map(c => c.toJSON());
 
 // ─────────────────────────────
-// 🚨 FULL RESET (GLOBAL + GUILD)
-// ─────────────────────────────
-
-async function resetAllCommands() {
-  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
-
-  console.log("🧹 Clearing GLOBAL commands...");
-  await rest.put(
-    Routes.applicationCommands(client.application.id),
-    { body: [] }
-  );
-
-  const guilds = await client.guilds.fetch();
-
-  for (const [, guild] of guilds) {
-    console.log(`🧹 Clearing guild ${guild.id}`);
-
-    await rest.put(
-      Routes.applicationGuildCommands(client.application.id, guild.id),
-      { body: [] }
-    );
-  }
-
-  console.log("✅ All commands cleared");
-}
-
-// ─────────────────────────────
-// REGISTER CLEAN COMMANDS
+// REGISTER (SAFE GUILD ONLY)
 // ─────────────────────────────
 
 async function registerCommands() {
@@ -159,12 +127,8 @@ async function registerCommands() {
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  await new Promise(r => setTimeout(r, 3000));
+  await client.application.fetch();
 
-  // 🔥 CLEAN EVERYTHING FIRST (FIX DUPLICATES)
-  await resetAllCommands();
-
-  // ➕ REBUILD CLEAN COMMANDS
   await registerCommands();
 
   updateStatus();
@@ -173,14 +137,7 @@ client.once("ready", async () => {
 });
 
 // ─────────────────────────────
-// STATUS UPDATE
-// ─────────────────────────────
-
-client.on("guildCreate", updateStatus);
-client.on("guildDelete", updateStatus);
-
-// ─────────────────────────────
-// INTERACTIONS (FIXED FAIL TO INTERACT)
+// INTERACTIONS
 // ─────────────────────────────
 
 client.on("interactionCreate", async (i) => {
@@ -193,98 +150,79 @@ client.on("interactionCreate", async (i) => {
     return i.reply("🏓 Pong!");
   }
 
-  // 👢 KICK
-  if (commandName === "kick") {
+  // 📢 SAY
+  if (commandName === "say") {
+    await i.deferReply({ ephemeral: true });
+
+    const msg = i.options.getString("message");
+
+    await i.channel.send(msg);
+
+    return i.editReply("✅ Message sent");
+  }
+
+  // ⏳ TIMEOUT
+  if (commandName === "timeout") {
     await i.deferReply();
 
     try {
       const user = i.options.getUser("user");
+      const mins = i.options.getInteger("minutes");
       const reason = i.options.getString("reason") || "No reason";
 
-      const m = await guild.members.fetch(user.id);
-      await m.kick(reason);
+      const member = await guild.members.fetch(user.id);
+
+      await member.timeout(mins * 60000, reason);
 
       return i.editReply({
-        embeds: [modEmbed("Kicked", 0xffa500, user, reason)]
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("⏳ Timed Out")
+            .setColor(0xffff00)
+            .addFields(
+              { name: "User", value: `${user.tag}` },
+              { name: "Duration", value: `${mins} minutes` },
+              { name: "Reason", value: reason }
+            )
+            .setTimestamp()
+        ]
       });
 
     } catch (err) {
       console.error(err);
-      return i.editReply("❌ Failed to kick user");
+      return i.editReply("❌ Failed to timeout user");
     }
   }
 
-  // 🔨 BAN
-  if (commandName === "ban") {
-    await i.deferReply();
+  // 🎱 8BALL
+  if (commandName === "8ball") {
+    const responses = [
+      "Yes.",
+      "No.",
+      "Maybe.",
+      "Absolutely.",
+      "Not a chance.",
+      "Ask again later.",
+      "Definitely.",
+      "I don’t think so.",
+      "It is certain.",
+      "Very doubtful."
+    ];
 
-    try {
-      const user = i.options.getUser("user");
-      const reason = i.options.getString("reason") || "No reason";
-
-      const m = await guild.members.fetch(user.id);
-      await m.ban({ reason });
-
-      return i.editReply({
-        embeds: [modEmbed("Banned", 0xff0000, user, reason)]
-      });
-
-    } catch (err) {
-      console.error(err);
-      return i.editReply("❌ Failed to ban user");
-    }
-  }
-
-  // ⚠ WARN
-  if (commandName === "warn") {
-    await i.deferReply();
-
-    try {
-      const user = i.options.getUser("user");
-      const reason = i.options.getString("reason");
-
-      if (!warns.has(user.id)) warns.set(user.id, []);
-      warns.get(user.id).push(reason);
-
-      return i.editReply({
-        embeds: [modEmbed("Warned", 0xffff00, user, reason)]
-      });
-
-    } catch (err) {
-      console.error(err);
-      return i.editReply("❌ Failed to warn user");
-    }
-  }
-
-  // 📊 WARNINGS
-  if (commandName === "warnings") {
-    const user = i.options.getUser("user");
-    const list = warns.get(user.id) || [];
+    const question = i.options.getString("question");
+    const answer = responses[Math.floor(Math.random() * responses.length)];
 
     return i.reply({
       embeds: [
         new EmbedBuilder()
-          .setTitle("Warnings")
-          .setColor(0x3498db)
-          .setDescription(list.length ? list.join("\n") : "None")
+          .setTitle("🎱 8-Ball")
+          .setColor(0x2ecc71)
+          .addFields(
+            { name: "Question", value: question },
+            { name: "Answer", value: answer }
+          )
       ]
     });
-  }
-
-  // 🧹 CLEAR
-  if (commandName === "clear") {
-    await i.deferReply();
-
-    try {
-      const amt = Math.min(i.options.getInteger("amount"), 100);
-      await i.channel.bulkDelete(amt, true);
-
-      return i.editReply("🧹 Cleared messages");
-
-    } catch (err) {
-      console.error(err);
-      return i.editReply("❌ Failed to clear messages");
-    }
   }
 });
 
