@@ -91,7 +91,7 @@ const FILTERS = {
   ContentKeeper: ["contentkeeper"]
 };
 
-// ───────── COMMANDS (VALID) ─────────
+// ───────── COMMANDS ─────────
 
 const commands = [
 
@@ -117,6 +117,16 @@ const commands = [
     .addStringOption(o =>
       o.setName("url")
         .setDescription("Website URL")
+        .setRequired(true)
+    ),
+
+  // ✅ SAY COMMAND (OWNER ONLY)
+  new SlashCommandBuilder()
+    .setName("say")
+    .setDescription("📢 Make the bot say something (Owner only)")
+    .addStringOption(o =>
+      o.setName("message")
+        .setDescription("Message to send")
         .setRequired(true)
     ),
 
@@ -189,13 +199,12 @@ const commands = [
 
 ].map(c => c.toJSON());
 
-// ───────── REGISTER (GUILD ONLY) ─────────
+// ───────── REGISTER ─────────
 
 async function registerCommands() {
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   await client.application.fetch();
-
   const guilds = await client.guilds.fetch();
 
   for (const [, guild] of guilds) {
@@ -205,7 +214,7 @@ async function registerCommands() {
     );
   }
 
-  console.log("✅ Guild commands synced");
+  console.log("✅ Commands synced");
 }
 
 // ───────── READY ─────────
@@ -229,33 +238,49 @@ client.on("interactionCreate", async i => {
 
   try {
 
-    if (cmd === "ping") {
+    if (cmd === "ping")
       return i.reply({ embeds: [embed("🏓 Pong", 0x2ecc71)] });
-    }
 
-    if (cmd === "help") {
+    if (cmd === "help")
       return i.reply({
         embeds: [embed("📋 Commands", 0x3498db, [
-          { name: "General", value: "/ping /help /about /analytics /checkall" },
+          { name: "General", value: "/ping /help /about /analytics /checkall /say" },
           { name: "Moderation", value: "/kick /ban /timeout /warn /warnings" }
         ])]
       });
-    }
 
-    if (cmd === "about") {
+    if (cmd === "about")
       return i.reply({
         embeds: [embed("🤖 About", 0x9b59b6, [
           { name: "Servers", value: `${client.guilds.cache.size}` }
         ])]
       });
-    }
 
-    if (cmd === "analytics") {
+    if (cmd === "analytics")
       return i.reply({
         embeds: [embed("📊 Analytics", 0x1abc9c, [
           { name: "Servers", value: `${client.guilds.cache.size}` },
           { name: "Users", value: `${client.users.cache.size}` }
         ])]
+      });
+
+    // ✅ SAY HANDLER (OWNER ONLY)
+    if (cmd === "say") {
+      if (guild.ownerId !== i.user.id) {
+        return i.reply({
+          content: "❌ Only the server owner can use this command",
+          ephemeral: true
+        });
+      }
+
+      await i.deferReply({ ephemeral: true });
+
+      const msg = i.options.getString("message");
+
+      await i.channel.send(msg);
+
+      return i.editReply({
+        embeds: [embed("✅ Message Sent", 0x2ecc71)]
       });
     }
 
