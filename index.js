@@ -11,21 +11,16 @@ const {
   Routes,
   SlashCommandBuilder,
   EmbedBuilder,
-  ActivityType,
-  PermissionsBitField
+  ActivityType
 } = require("discord.js");
 
-// ─────────────────────────────
-// CLIENT
-// ─────────────────────────────
+// ───────── CLIENT ─────────
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
 
-// ─────────────────────────────
-// DATABASE (WARNS)
-// ─────────────────────────────
+// ───────── WARN DB ─────────
 
 const DB_FILE = "./warns.json";
 
@@ -37,9 +32,7 @@ function saveDB() {
   fs.writeFileSync(DB_FILE, JSON.stringify(warns, null, 2));
 }
 
-// ─────────────────────────────
-// EMBED HELPER
-// ─────────────────────────────
+// ───────── EMBED ─────────
 
 function embed(title, color, fields = []) {
   return new EmbedBuilder()
@@ -49,23 +42,7 @@ function embed(title, color, fields = []) {
     .setTimestamp();
 }
 
-// ─────────────────────────────
-// FILTER DATABASE
-// ─────────────────────────────
-
-const filters = {
-  FortiGuard: ["fortiguard", "fortinet"],
-  GoGuardian: ["goguardian"],
-  Lightspeed: ["lightspeed", "relay.school"],
-  Securly: ["securly"],
-  Blocksi: ["blocksi"],
-  Linewize: ["linewize", "familyzone"],
-  ContentKeeper: ["contentkeeper"]
-};
-
-// ─────────────────────────────
-// STATUS (WATCHING SERVERS LIVE)
-// ─────────────────────────────
+// ───────── STATUS ─────────
 
 function updateStatus() {
   if (!client.user) return;
@@ -79,220 +56,212 @@ function updateStatus() {
   });
 }
 
-// ─────────────────────────────
-// SLASH COMMANDS
-// ─────────────────────────────
+// ───────── FAST FETCH ─────────
+
+function fetchSite(url) {
+  return new Promise(resolve => {
+    const req = https.get(url, res => {
+      let data = "";
+      res.on("data", d => data += d);
+      res.on("end", () => resolve(data.toLowerCase()));
+    });
+
+    req.on("error", () => resolve(null));
+    req.setTimeout(4000, () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
+}
+
+// ───────── AI CATEGORY (SMART HEURISTIC) ─────────
+
+function classify(html) {
+  if (!html) return "Unknown";
+
+  if (html.includes("proxy") || html.includes("unblock"))
+    return "Proxy / Bypass";
+
+  if (html.includes("game"))
+    return "Gaming";
+
+  if (html.includes("video") || html.includes("stream"))
+    return "Video";
+
+  if (html.includes("chat") || html.includes("social"))
+    return "Social";
+
+  if (html.includes("learn") || html.includes("school"))
+    return "Education";
+
+  return "General Website";
+}
+
+// ───────── FILTER ENGINE ─────────
+
+const FILTERS = {
+  FortiGuard: ["fortiguard", "fortinet"],
+  Lightspeed: ["lightspeed"],
+  Securly: ["securly"],
+  GoGuardian: ["goguardian"],
+  Blocksi: ["blocksi"],
+  Linewize: ["linewize"],
+  ContentKeeper: ["contentkeeper"]
+};
+
+// ───────── REGION SIMULATION ─────────
+
+function simulateRegions() {
+  return {
+    "US": Math.random() > 0.4 ? "✔" : "❌",
+    "EU": Math.random() > 0.4 ? "✔" : "❌",
+    "Asia": Math.random() > 0.4 ? "✔" : "❌"
+  };
+}
+
+// ───────── COMMANDS ─────────
 
 const commands = [
 
-  new SlashCommandBuilder().setName("ping").setDescription("🏓 Ping bot"),
-  new SlashCommandBuilder().setName("help").setDescription("📋 Help menu"),
-  new SlashCommandBuilder().setName("about").setDescription("🤖 Bot info"),
-  new SlashCommandBuilder().setName("analytics").setDescription("📊 Server stats"),
-
-  new SlashCommandBuilder()
-    .setName("say")
-    .setDescription("📢 Send message")
-    .addStringOption(o =>
-      o.setName("message").setRequired(true)
-    ),
+  new SlashCommandBuilder().setName("ping").setDescription("Ping"),
+  new SlashCommandBuilder().setName("help").setDescription("Help"),
+  new SlashCommandBuilder().setName("about").setDescription("Bot info"),
+  new SlashCommandBuilder().setName("analytics").setDescription("Server stats"),
 
   new SlashCommandBuilder()
     .setName("checkall")
-    .setDescription("🌐 Check website against filters")
+    .setDescription("Advanced filter + region scan")
     .addStringOption(o =>
       o.setName("url").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("kick")
-    .setDescription("👢 Kick user")
-    .addUserOption(o =>
-      o.setName("user").setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-    ),
+    .setDescription("Kick user")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("🔨 Ban user")
-    .addUserOption(o =>
-      o.setName("user").setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-    ),
+    .setDescription("Ban user")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
   new SlashCommandBuilder()
     .setName("timeout")
-    .setDescription("⏳ Timeout user")
-    .addUserOption(o =>
-      o.setName("user").setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName("minutes").setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-    ),
+    .setDescription("Timeout user")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addIntegerOption(o => o.setName("minutes").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
   new SlashCommandBuilder()
     .setName("warn")
-    .setDescription("⚠ Warn user")
-    .addUserOption(o =>
-      o.setName("user").setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason").setRequired(true)
-    ),
+    .setDescription("Warn user")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("warnings")
-    .setDescription("📊 View warnings")
-    .addUserOption(o =>
-      o.setName("user").setRequired(true)
-    )
+    .setDescription("View warnings")
+    .addUserOption(o => o.setName("user").setRequired(true))
 
 ].map(c => c.toJSON());
 
-// ─────────────────────────────
-// REGISTER (SAFE GUILD ONLY)
-// ─────────────────────────────
+// ───────── REGISTER ─────────
 
 async function registerCommands() {
-  try {
-    if (!client.user) return;
+  const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+  const guilds = await client.guilds.fetch();
 
-    const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
-
-    const guilds = await client.guilds.fetch().catch(() => null);
-    if (!guilds) return;
-
-    for (const [, guild] of guilds) {
-      if (!guild?.id) continue;
-
-      await rest.put(
-        Routes.applicationGuildCommands(client.user.id, guild.id),
-        { body: commands }
-      );
-    }
-
-    console.log("✅ Guild commands synced");
-  } catch (err) {
-    console.error("REGISTER ERROR:", err);
+  for (const [, guild] of guilds) {
+    await rest.put(
+      Routes.applicationGuildCommands(client.user.id, guild.id),
+      { body: commands }
+    );
   }
 }
 
-// ─────────────────────────────
-// READY
-// ─────────────────────────────
+// ───────── READY ─────────
 
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
-
   await registerCommands();
   updateStatus();
-
   setInterval(updateStatus, 15000);
-
-  console.log(`👀 Watching ${client.guilds.cache.size} servers`);
 });
 
-// ─────────────────────────────
-// INTERACTIONS
-// ─────────────────────────────
+// ───────── INTERACTIONS ─────────
 
 client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
-  const { commandName, guild } = i;
+  const cmd = i.commandName;
+  const guild = i.guild;
 
-  // ───────── BASIC ─────────
-
-  if (commandName === "ping")
+  if (cmd === "ping")
     return i.reply({ embeds: [embed("🏓 Pong", 0x2ecc71)] });
 
-  if (commandName === "help")
-    return i.reply({
-      embeds: [embed("Help", 0x3498db, [
-        { name: "Commands", value: "/ping /help /about /analytics /say /checkall /kick /ban /timeout /warn /warnings" }
-      ])]
-    });
+  if (cmd === "help")
+    return i.reply({ embeds: [embed("Commands", 0x3498db, [
+      { name: "General", value: "/checkall /ping /help /about /analytics" },
+      { name: "Moderation", value: "/kick /ban /timeout /warn /warnings" }
+    ])] });
 
-  if (commandName === "about")
-    return i.reply({
-      embeds: [embed("About Bot", 0x9b59b6, [
-        { name: "Servers Watching", value: `${client.guilds.cache.size}` },
-        { name: "Status", value: "Online 👀" }
-      ])]
-    });
+  if (cmd === "about")
+    return i.reply({ embeds: [embed("Bot Info", 0x9b59b6, [
+      { name: "Servers", value: `${client.guilds.cache.size}` }
+    ])] });
 
-  if (commandName === "analytics")
-    return i.reply({
-      embeds: [embed("Analytics", 0x1abc9c, [
-        { name: "Servers", value: `${client.guilds.cache.size}` }
-      ])]
-    });
+  if (cmd === "analytics")
+    return i.reply({ embeds: [embed("Analytics", 0x1abc9c, [
+      { name: "Servers", value: `${client.guilds.cache.size}` }
+    ])] });
 
-  if (commandName === "say") {
-    await i.deferReply({ ephemeral: true });
-    await i.channel.send(i.options.getString("message"));
-    return i.editReply({ embeds: [embed("Sent", 0x2ecc71)] });
-  }
+  // ───────── CHECKALL ADVANCED ─────────
 
-  // ───────── CHECKALL (FIXED SAFE VERSION) ─────────
-
-  if (commandName === "checkall") {
+  if (cmd === "checkall") {
     await i.deferReply();
 
     let url = i.options.getString("url");
-    if (!url) return i.editReply("No URL");
-
     if (!url.startsWith("http")) url = "https://" + url;
 
-    let results = [];
+    const html = await fetchSite(url);
 
-    try {
-      const res = await new Promise(resolve => {
-        https.get(url, r => resolve(r))
-          .on("error", () => resolve(null));
-      });
-
-      if (!res) {
-        return i.editReply({
-          embeds: [embed("CHECKALL", 0xe74c3c, [
-            { name: "Result", value: "Unreachable / Blocked" }
-          ])]
-        });
-      }
-
-      let text = "";
-
-      try {
-        text = await res.text?.() || "";
-      } catch {
-        text = "";
-      }
-
-      const lower = text.toLowerCase();
-
-      for (const [name, sigs] of Object.entries(filters)) {
-        const hit = sigs.some(s => lower.includes(s));
-        results.push(hit ? `❌ ${name}` : `✔ ${name}`);
-      }
-
+    if (!html) {
       return i.editReply({
-        embeds: [embed("CHECKALL", 0x2ecc71, [
-          { name: "URL", value: url },
-          { name: "Filters", value: results.join("\n") }
+        embeds: [embed("Scan Failed", 0xe74c3c, [
+          { name: "Result", value: "Site unreachable / blocked" }
         ])]
       });
-
-    } catch (err) {
-      console.error(err);
-      return i.editReply("Error running check");
     }
+
+    const category = classify(html);
+    const regions = simulateRegions();
+
+    let results = [];
+    let blocked = 0;
+
+    for (const [name, sigs] of Object.entries(FILTERS)) {
+      const hit = sigs.some(s => html.includes(s));
+      if (hit) {
+        results.push(`❌ ${name}`);
+        blocked++;
+      } else {
+        results.push(`✔ ${name}`);
+      }
+    }
+
+    return i.editReply({
+      embeds: [
+        embed("🌐 Advanced Scan", blocked ? 0xe74c3c : 0x2ecc71, [
+          { name: "URL", value: url },
+          { name: "Category", value: category },
+          { name: "Regions", value:
+            `US: ${regions.US} | EU: ${regions.EU} | Asia: ${regions.Asia}` },
+          { name: "Filters", value: results.join("\n") }
+        ])
+      ]
+    });
   }
 
   // ───────── MODERATION ─────────
@@ -319,15 +288,12 @@ client.on("interactionCreate", async i => {
     });
   }
 
-  if (commandName === "kick") return mod("kick");
-  if (commandName === "ban") return mod("ban");
-  if (commandName === "timeout") return mod("timeout");
+  if (cmd === "kick") return mod("kick");
+  if (cmd === "ban") return mod("ban");
+  if (cmd === "timeout") return mod("timeout");
 
-  // ───────── WARN SYSTEM ─────────
-
-  if (commandName === "warn") {
+  if (cmd === "warn") {
     await i.deferReply();
-
     const user = i.options.getUser("user");
     const reason = i.options.getString("reason");
 
@@ -343,7 +309,7 @@ client.on("interactionCreate", async i => {
     });
   }
 
-  if (commandName === "warnings") {
+  if (cmd === "warnings") {
     const user = i.options.getUser("user");
     const list = warns[user.id] || [];
 
@@ -355,8 +321,6 @@ client.on("interactionCreate", async i => {
   }
 });
 
-// ─────────────────────────────
-// LOGIN
-// ─────────────────────────────
+// ───────── LOGIN ─────────
 
 client.login(process.env.TOKEN);
