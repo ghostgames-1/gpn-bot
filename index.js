@@ -120,7 +120,6 @@ const commands = [
         .setRequired(true)
     ),
 
-  // ✅ SAY COMMAND (OWNER ONLY)
   new SlashCommandBuilder()
     .setName("say")
     .setDescription("📢 Make the bot say something (Owner only)")
@@ -199,22 +198,34 @@ const commands = [
 
 ].map(c => c.toJSON());
 
-// ───────── REGISTER ─────────
+// ───────── REGISTER GLOBAL ─────────
 
 async function registerCommands() {
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   await client.application.fetch();
-  const guilds = await client.guilds.fetch();
 
-  for (const [, guild] of guilds) {
+  try {
+    // ✅ CLEAR OLD GUILD COMMANDS (prevents duplicates)
+    const guilds = await client.guilds.fetch();
+    for (const [, guild] of guilds) {
+      await rest.put(
+        Routes.applicationGuildCommands(client.application.id, guild.id),
+        { body: [] }
+      );
+    }
+
+    // ✅ REGISTER GLOBAL COMMANDS
     await rest.put(
-      Routes.applicationGuildCommands(client.application.id, guild.id),
+      Routes.applicationCommands(client.application.id),
       { body: commands }
     );
-  }
 
-  console.log("✅ Commands synced");
+    console.log("🌍 Global commands synced (no duplicates)");
+
+  } catch (err) {
+    console.error("❌ Command register error:", err);
+  }
 }
 
 // ───────── READY ─────────
@@ -264,11 +275,12 @@ client.on("interactionCreate", async i => {
         ])]
       });
 
-    // ✅ SAY HANDLER (OWNER ONLY)
+    // ───── SAY (OWNER ONLY) ─────
+
     if (cmd === "say") {
       if (guild.ownerId !== i.user.id) {
         return i.reply({
-          content: "❌ Only the server owner can use this command",
+          content: "❌ Only the server owner can use this",
           ephemeral: true
         });
       }
