@@ -7,16 +7,10 @@ const {
   SlashCommandBuilder,
   EmbedBuilder,
   PermissionsBitField,
-  ActivityType,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  AuditLogEvent
+  ActivityType
 } = require("discord.js");
 
-// ─────────────────────────────
-// CLIENT
-// ─────────────────────────────
+// ───────── CLIENT ─────────
 
 const client = new Client({
   intents: [
@@ -27,62 +21,46 @@ const client = new Client({
   ]
 });
 
-// ─────────────────────────────
-// SAFETY NET (CRASH PREVENTION)
-// ─────────────────────────────
+// ───────── SAFETY ─────────
 
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
-// ─────────────────────────────
-// DATABASE
-// ─────────────────────────────
+// ───────── DATABASE ─────────
 
 const CONFIG_FILE = "./config.json";
 const WARN_FILE = "./warns.json";
 
-let config = fs.existsSync(CONFIG_FILE)
-  ? JSON.parse(fs.readFileSync(CONFIG_FILE))
-  : {};
-
-let warns = fs.existsSync(WARN_FILE)
-  ? JSON.parse(fs.readFileSync(WARN_FILE))
-  : {};
+let config = fs.existsSync(CONFIG_FILE) ? JSON.parse(fs.readFileSync(CONFIG_FILE)) : {};
+let warns = fs.existsSync(WARN_FILE) ? JSON.parse(fs.readFileSync(WARN_FILE)) : {};
 
 let served = 0;
 
-const saveConfig = () =>
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-
-const saveWarns = () =>
-  fs.writeFileSync(WARN_FILE, JSON.stringify(warns, null, 2));
+const saveConfig = () => fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+const saveWarns = () => fs.writeFileSync(WARN_FILE, JSON.stringify(warns, null, 2));
 
 function getGuild(id) {
   if (!config[id]) {
     config[id] = {
       antiraid: false,
-      antinuke: false,
       whitelist: [],
-      logChannel: null,
-      linkBlock: true
+      linkBlock: true,
+      logChannel: null
     };
   }
   return config[id];
 }
 
-// ─────────────────────────────
-// SAFE HELPERS (FIXES UNDEFINED ERRORS)
-// ─────────────────────────────
+// ───────── SAFE HELPERS ─────────
 
-function embed(t, c, f = []) {
-  const e = new EmbedBuilder().setTitle(t).setColor(c).setTimestamp();
-  if (f.length) e.addFields(f);
+function embed(title, color, fields = []) {
+  const e = new EmbedBuilder().setTitle(title).setColor(color).setTimestamp();
+  if (fields.length) e.addFields(fields);
   return e;
 }
 
 function getUser(i, name) {
-  const u = i.options.getUser(name);
-  return u || null;
+  return i.options.getUser(name) || null;
 }
 
 function getRole(i, name) {
@@ -103,9 +81,7 @@ async function safeReply(i, data) {
   }
 }
 
-// ─────────────────────────────
-// STATUS SYSTEM
-// ─────────────────────────────
+// ───────── STATUS ─────────
 
 function updateStatus() {
   if (!client.user) return;
@@ -119,9 +95,7 @@ function updateStatus() {
   });
 }
 
-// ─────────────────────────────
-// SECURITY SYSTEM
-// ─────────────────────────────
+// ───────── SECURITY ─────────
 
 const joins = {};
 const spam = {};
@@ -133,12 +107,10 @@ client.on("guildMemberAdd", async m => {
   joins[m.guild.id] ??= [];
   joins[m.guild.id].push(Date.now());
 
-  joins[m.guild.id] =
-    joins[m.guild.id].filter(t => Date.now() - t < 10000);
+  joins[m.guild.id] = joins[m.guild.id].filter(t => Date.now() - t < 10000);
 
-  if (joins[m.guild.id].length >= 5) {
+  if (joins[m.guild.id].length >= 5)
     await m.timeout(600000).catch(() => {});
-  }
 });
 
 client.on("messageCreate", async msg => {
@@ -154,22 +126,27 @@ client.on("messageCreate", async msg => {
   spam[msg.author.id] ??= [];
   spam[msg.author.id].push(Date.now());
 
-  spam[msg.author.id] =
-    spam[msg.author.id].filter(t => Date.now() - t < 4000);
+  spam[msg.author.id] = spam[msg.author.id].filter(t => Date.now() - t < 4000);
 
-  if (spam[msg.author.id].length >= 6) {
+  if (spam[msg.author.id].length >= 6)
     await msg.member?.timeout(300000).catch(() => {});
-  }
 });
 
-// ─────────────────────────────
-// COMMANDS REGISTER
-// ─────────────────────────────
+// ───────── COMMANDS ─────────
 
 const commands = [
 
-  new SlashCommandBuilder().setName("ping").setDescription("Ping"),
-  new SlashCommandBuilder().setName("help").setDescription("Help"),
+  new SlashCommandBuilder().setName("ping").setDescription("Check latency"),
+
+  new SlashCommandBuilder().setName("help").setDescription("Commands"),
+
+  new SlashCommandBuilder().setName("say")
+    .setDescription("Send message as bot")
+    .addStringOption(o => o.setName("message").setRequired(true)),
+
+  new SlashCommandBuilder().setName("8ball")
+    .setDescription("Ask 8ball")
+    .addStringOption(o => o.setName("question").setRequired(true)),
 
   new SlashCommandBuilder().setName("kick")
     .setDescription("Kick user")
@@ -208,7 +185,7 @@ const commands = [
     .addStringOption(o => o.setName("nickname").setRequired(true)),
 
   new SlashCommandBuilder().setName("setlog")
-    .setDescription("Set logs channel")
+    .setDescription("Set logs")
     .addChannelOption(o => o.setName("channel").setRequired(true)),
 
   new SlashCommandBuilder().setName("whitelist")
@@ -217,48 +194,38 @@ const commands = [
     .addSubcommand(s => s.setName("remove").addUserOption(o => o.setName("user").setRequired(true))),
 
   new SlashCommandBuilder().setName("antiraid")
-    .setDescription("AntiRaid setup"),
-
-  new SlashCommandBuilder().setName("antinuke")
-    .setDescription("AntiNuke setup")
+    .setDescription("Enable anti raid")
 
 ].map(c => c.toJSON());
 
-// ─────────────────────────────
-// READY
-// ─────────────────────────────
+// ───────── READY ─────────
 
 client.once("ready", async () => {
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-  await rest.put(
-    Routes.applicationCommands(client.user.id),
-    { body: commands }
-  );
+  await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
   updateStatus();
   setInterval(updateStatus, 15000);
 
-  console.log("✅ GPN ENTERPRISE BOT ONLINE");
+  console.log("✅ Bot ready");
 });
 
-// ─────────────────────────────
-// INTERACTIONS (SAFE CORE)
-// ─────────────────────────────
+// ───────── INTERACTIONS ─────────
 
 client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
+  const start = Date.now();
+
   try {
-    if (!i.guild || !i.member)
-      return safeReply(i, { content: "❌ Guild only", ephemeral: true });
+    if (!i.guild) return safeReply(i, { content: "❌ Guild only", ephemeral: true });
 
     served++;
 
     const guild = i.guild;
     const member = await guild.members.fetch(i.user.id).catch(() => null);
-    if (!member)
-      return safeReply(i, { content: "❌ Member error", ephemeral: true });
+    if (!member) return;
 
     const g = getGuild(guild.id);
 
@@ -267,121 +234,148 @@ client.on("interactionCreate", async i => {
         throw new Error("No permission");
     };
 
-    // ───────── HELP ─────────
-    if (i.commandName === "help")
-      return safeReply(i, { embeds: [embed("Commands", 0x3498db)] });
+    // ───── PING ─────
+    if (i.commandName === "ping") {
+      const api = Math.round(client.ws.ping);
+      const latency = Date.now() - start;
 
-    // ───────── ANTIRAID ─────────
+      return safeReply(i, {
+        embeds: [embed("🏓 Pong", 0x2ecc71, [
+          { name: "API Latency", value: `${api} ms`, inline: true },
+          { name: "Response Time", value: `${latency} ms`, inline: true }
+        ])]
+      });
+    }
+
+    // ───── SAY ─────
+    if (i.commandName === "say") {
+      const msg = i.options.getString("message");
+
+      await i.channel.send(msg).catch(() => {});
+      return safeReply(i, {
+        embeds: [embed("✅ Sent", 0x2ecc71)],
+        ephemeral: true
+      });
+    }
+
+    // ───── 8BALL ─────
+    if (i.commandName === "8ball") {
+      const q = i.options.getString("question");
+
+      const answers = ["Yes", "No", "Maybe", "Definitely", "Ask again later"];
+      const a = answers[Math.floor(Math.random() * answers.length)];
+
+      return safeReply(i, {
+        embeds: [embed("🎱 8Ball", 0x9b59b6, [
+          { name: "Question", value: q },
+          { name: "Answer", value: a }
+        ])]
+      });
+    }
+
+    // ───── ANTIRAID ─────
     if (i.commandName === "antiraid") {
       g.antiraid = true;
       saveConfig();
-      return safeReply(i, { embeds: [embed("AntiRaid enabled", 0x2ecc71)] });
+      return safeReply(i, { embeds: [embed("🛡 Enabled", 0x2ecc71)] });
     }
 
-    // ───────── ANTINUKE ─────────
-    if (i.commandName === "antinuke") {
-      g.antinuke = true;
-      saveConfig();
-      return safeReply(i, { embeds: [embed("AntiNuke enabled", 0xe74c3c)] });
-    }
-
-    // ───────── MODERATION ─────────
+    // ───── MODERATION ─────
 
     if (i.commandName === "kick") {
       requirePerm(PermissionsBitField.Flags.KickMembers);
+      const u = getUser(i, "user");
+      const t = await resolveMember(guild, u);
 
-      const user = getUser(i, "user");
-      const target = await resolveMember(guild, user);
-
-      if (!target || !target.kickable)
+      if (!t || !t.kickable)
         return safeReply(i, { content: "❌ Can't kick", ephemeral: true });
 
-      await target.kick();
+      await t.kick();
       return safeReply(i, { embeds: [embed("Kicked", 0xe67e22)] });
     }
 
     if (i.commandName === "ban") {
       requirePerm(PermissionsBitField.Flags.BanMembers);
+      const u = getUser(i, "user");
 
-      const user = getUser(i, "user");
-      await guild.members.ban(user.id).catch(() => {});
-
+      await guild.members.ban(u.id).catch(() => {});
       return safeReply(i, { embeds: [embed("Banned", 0xe74c3c)] });
     }
 
     if (i.commandName === "timeout") {
       requirePerm(PermissionsBitField.Flags.ModerateMembers);
 
-      const user = getUser(i, "user");
+      const u = getUser(i, "user");
       const mins = i.options.getInteger("minutes");
+      const t = await resolveMember(guild, u);
 
-      const target = await resolveMember(guild, user);
-      if (!target) return;
+      if (!t) return;
 
-      await target.timeout(mins * 60000).catch(() => {});
+      await t.timeout(mins * 60000).catch(() => {});
       return safeReply(i, { embeds: [embed("Timed out", 0xf1c40f)] });
     }
 
     if (i.commandName === "warn") {
-      const user = getUser(i, "user");
-      const reason = i.options.getString("reason");
+      const u = getUser(i, "user");
+      const r = i.options.getString("reason");
 
-      warns[user.id] ??= [];
-      warns[user.id].push(reason);
+      warns[u.id] ??= [];
+      warns[u.id].push(r);
       saveWarns();
 
       return safeReply(i, { embeds: [embed("Warned", 0xf1c40f)] });
     }
 
     if (i.commandName === "warnings") {
-      const user = getUser(i, "user");
+      const u = getUser(i, "user");
 
       return safeReply(i, {
         embeds: [embed("Warnings", 0x3498db, [
-          { name: user.tag, value: warns[user.id]?.join("\n") || "None" }
+          { name: u.tag, value: warns[u.id]?.join("\n") || "None" }
         ])]
       });
     }
 
     if (i.commandName === "purge") {
-      const amount = i.options.getInteger("amount");
+      const a = i.options.getInteger("amount");
 
-      if (amount < 1 || amount > 100)
-        return safeReply(i, { content: "❌ 1-100 only", ephemeral: true });
+      if (a < 1 || a > 100)
+        return safeReply(i, { content: "❌ 1-100", ephemeral: true });
 
-      await i.channel.bulkDelete(amount, true).catch(() => {});
-      return safeReply(i, { embeds: [embed("Purged", 0xe67e22)], ephemeral: true });
+      await i.channel.bulkDelete(a, true).catch(() => {});
+      return safeReply(i, {
+        embeds: [embed("Purged", 0xe67e22)],
+        ephemeral: true
+      });
     }
 
     if (i.commandName === "addrole") {
-      const user = getUser(i, "user");
-      const role = getRole(i, "role");
+      const u = getUser(i, "user");
+      const r = getRole(i, "role");
+      const t = await resolveMember(guild, u);
 
-      const target = await resolveMember(guild, user);
-
-      if (!target || !role?.editable)
+      if (!t || !r.editable)
         return safeReply(i, { content: "❌ Cannot add role", ephemeral: true });
 
-      await target.roles.add(role);
+      await t.roles.add(r);
       return safeReply(i, { embeds: [embed("Role added", 0x2ecc71)] });
     }
 
     if (i.commandName === "setnick") {
-      const user = getUser(i, "user");
-      const nick = i.options.getString("nickname");
+      const u = getUser(i, "user");
+      const n = i.options.getString("nickname");
+      const t = await resolveMember(guild, u);
 
-      const target = await resolveMember(guild, user);
-
-      if (!target || !target.manageable)
+      if (!t || !t.manageable)
         return safeReply(i, { content: "❌ Cannot change nick", ephemeral: true });
 
-      await target.setNickname(nick).catch(() => {});
-      return safeReply(i, { embeds: [embed("Nickname updated", 0x3498db)] });
+      await t.setNickname(n);
+      return safeReply(i, { embeds: [embed("Nick updated", 0x3498db)] });
     }
 
     if (i.commandName === "setlog") {
       const ch = i.options.getChannel("channel");
-      g.logChannel = ch?.id || null;
+      g.logChannel = ch.id;
       saveConfig();
 
       return safeReply(i, { embeds: [embed("Logs set", 0x2ecc71)] });
@@ -389,16 +383,10 @@ client.on("interactionCreate", async i => {
 
     if (i.commandName === "whitelist") {
       const sub = i.options.getSubcommand();
-      const user = getUser(i, "user");
+      const u = getUser(i, "user");
 
-      if (!user)
-        return safeReply(i, { content: "❌ Invalid user", ephemeral: true });
-
-      if (sub === "add")
-        g.whitelist.push(user.id);
-
-      if (sub === "remove")
-        g.whitelist = g.whitelist.filter(x => x !== user.id);
+      if (sub === "add") g.whitelist.push(u.id);
+      if (sub === "remove") g.whitelist = g.whitelist.filter(x => x !== u.id);
 
       saveConfig();
       return safeReply(i, { embeds: [embed("Whitelist updated", 0x3498db)] });
@@ -406,12 +394,10 @@ client.on("interactionCreate", async i => {
 
   } catch (err) {
     console.error(err);
-    return safeReply(i, { content: "❌ Internal error", ephemeral: true });
+    return safeReply(i, { content: "❌ Error", ephemeral: true });
   }
 });
 
-// ─────────────────────────────
-// LOGIN
-// ─────────────────────────────
+// ───────── LOGIN ─────────
 
 client.login(process.env.TOKEN);
