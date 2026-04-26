@@ -1,5 +1,6 @@
 const fs = require("fs");
 const https = require("https");
+const dns = require("dns").promises;
 
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
@@ -72,7 +73,7 @@ function fetchURL(url) {
   });
 }
 
-// ───────── REAL FILTER CHECK ─────────
+// ───────── FORTIGUARD ─────────
 
 async function checkForti(domain) {
   try {
@@ -83,8 +84,7 @@ async function checkForti(domain) {
 
     const text = data.toLowerCase();
 
-    let status = "✔";
-    if (text.includes("block")) status = "❌";
+    let status = text.includes("block") ? "❌" : "✔";
 
     let category = "Unknown";
     const match = text.match(/category:.*?<.*?>(.*?)</);
@@ -97,21 +97,68 @@ async function checkForti(domain) {
   }
 }
 
+// ───────── DNS CHECK ─────────
+
+async function checkDNS(domain) {
+  try {
+    const res = await dns.lookup(domain);
+
+    if (!res || !res.address)
+      return { status: "❌", category: "No Resolve" };
+
+    const ip = res.address;
+
+    if (
+      ip.startsWith("0.") ||
+      ip.startsWith("127.") ||
+      ip.startsWith("10.") ||
+      ip.startsWith("192.168")
+    ) {
+      return { status: "❌", category: "DNS Blocked" };
+    }
+
+    return { status: "✔", category: `Resolved (${ip})` };
+
+  } catch {
+    return { status: "❌", category: "DNS Error" };
+  }
+}
+
+// ───────── MULTI DNS (CLOUDFLARE + GOOGLE) ─────────
+
+async function checkMultiDNS(domain) {
+  try {
+    const cf = await fetchURL(`https://cloudflare-dns.com/dns-query?name=${domain}&type=A`);
+    const google = await fetchURL(`https://dns.google/resolve?name=${domain}`);
+
+    if (!cf || !google)
+      return { status: "⚠", category: "DNS API Error" };
+
+    if (cf.includes("Answer") && google.includes("Answer"))
+      return { status: "✔", category: "Public DNS OK" };
+
+    return { status: "❌", category: "Public DNS Blocked" };
+
+  } catch {
+    return { status: "⚠", category: "DNS Check Failed" };
+  }
+}
+
 // ───────── SMART CLASSIFIER ─────────
 
 function classify(domain) {
   domain = domain.toLowerCase();
 
   if (domain.includes("proxy") || domain.includes("vpn"))
-    return { status: "❌", category: "Proxy/Bypass" };
+    return { status: "❌", category: "Proxy" };
 
-  if (domain.includes("game") || domain.includes("play"))
+  if (domain.includes("game"))
     return { status: "❌", category: "Games" };
 
   if (domain.includes("chat") || domain.includes("discord"))
     return { status: "❌", category: "Communication" };
 
-  if (domain.includes("shop") || domain.includes("store"))
+  if (domain.includes("shop"))
     return { status: "✔", category: "Shopping" };
 
   if (domain.includes("edu"))
@@ -124,58 +171,54 @@ function classify(domain) {
 
 const commands = [
 
-  new SlashCommandBuilder().setName("ping").setDescription("🏓 Check latency"),
-  new SlashCommandBuilder().setName("help").setDescription("📋 Show commands"),
-  new SlashCommandBuilder().setName("about").setDescription("🤖 Bot info"),
-  new SlashCommandBuilder().setName("analytics").setDescription("📊 Server stats"),
+  new SlashCommandBuilder().setName("ping").setDescription("Ping bot"),
+  new SlashCommandBuilder().setName("help").setDescription("Show commands"),
+  new SlashCommandBuilder().setName("about").setDescription("Bot info"),
+  new SlashCommandBuilder().setName("analytics").setDescription("Stats"),
 
   new SlashCommandBuilder()
     .setName("checkall")
-    .setDescription("🌐 Scan a website across filters")
+    .setDescription("Scan a website across filters (PRO MAX)")
     .addStringOption(o =>
-      o.setName("url")
-        .setDescription("Website URL")
-        .setRequired(true)
+      o.setName("url").setDescription("Website URL").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("📢 Owner only message")
+    .setDescription("Owner only message")
     .addStringOption(o =>
-      o.setName("message")
-        .setDescription("Message")
-        .setRequired(true)
+      o.setName("message").setDescription("Message").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("kick")
-    .setDescription("👢 Kick user")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
-    .addStringOption(o => o.setName("reason").setDescription("Reason")),
+    .setDescription("Kick user")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("🔨 Ban user")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
-    .addStringOption(o => o.setName("reason").setDescription("Reason")),
+    .setDescription("Ban user")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
   new SlashCommandBuilder()
     .setName("timeout")
-    .setDescription("⏳ Timeout user")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
-    .addIntegerOption(o => o.setName("minutes").setDescription("Minutes").setRequired(true))
-    .addStringOption(o => o.setName("reason").setDescription("Reason")),
+    .setDescription("Timeout user")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addIntegerOption(o => o.setName("minutes").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
   new SlashCommandBuilder()
     .setName("warn")
-    .setDescription("⚠️ Warn user")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
-    .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(true)),
+    .setDescription("Warn user")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("warnings")
-    .setDescription("📊 View warnings")
-    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+    .setDescription("View warnings")
+    .addUserOption(o => o.setName("user").setRequired(true))
 
 ].map(c => c.toJSON());
 
@@ -218,40 +261,33 @@ client.on("interactionCreate", async i => {
       return i.reply({ embeds: [embed("🏓 Pong", 0x2ecc71)] });
 
     if (cmd === "help")
-      return i.reply({
-        embeds: [embed("📋 Commands", 0x3498db, [
-          { name: "General", value: "/ping /help /about /analytics /checkall /say" },
-          { name: "Moderation", value: "/kick /ban /timeout /warn /warnings" }
-        ])]
-      });
+      return i.reply({ embeds: [embed("Commands", 0x3498db)] });
 
     if (cmd === "about")
       return i.reply({
-        embeds: [embed("🤖 About", 0x9b59b6, [
+        embeds: [embed("About", 0x9b59b6, [
           { name: "Servers", value: `${client.guilds.cache.size}` }
         ])]
       });
 
     if (cmd === "analytics")
       return i.reply({
-        embeds: [embed("📊 Analytics", 0x1abc9c, [
+        embeds: [embed("Analytics", 0x1abc9c, [
           { name: "Servers", value: `${client.guilds.cache.size}` },
           { name: "Users", value: `${client.users.cache.size}` }
         ])]
       });
 
-    // OWNER SAY
     if (cmd === "say") {
       if (guild.ownerId !== i.user.id)
         return i.reply({ content: "❌ Owner only", ephemeral: true });
 
       await i.deferReply({ ephemeral: true });
       await i.channel.send(i.options.getString("message"));
-
-      return i.editReply({ embeds: [embed("✅ Sent", 0x2ecc71)] });
+      return i.editReply({ embeds: [embed("Sent", 0x2ecc71)] });
     }
 
-    // ───────── CHECKALL ─────────
+    // ───────── CHECKALL PRO MAX ─────────
 
     if (cmd === "checkall") {
       await i.deferReply();
@@ -259,10 +295,16 @@ client.on("interactionCreate", async i => {
       let url = i.options.getString("url");
       const domain = url.replace(/^https?:\/\//, "").split("/")[0];
 
-      const forti = await checkForti(domain);
+      const [forti, dnsCheck, multiDNS] = await Promise.all([
+        checkForti(domain),
+        checkDNS(domain),
+        checkMultiDNS(domain)
+      ]);
 
       const filters = {
         "🛡 FortiGuard": forti,
+        "📡 DNS": dnsCheck,
+        "🌍 Public DNS": multiDNS,
         "⚡ Lightspeed": classify(domain),
         "🔑 Securly": classify(domain),
         "👁 GoGuardian": classify(domain),
@@ -274,11 +316,14 @@ client.on("interactionCreate", async i => {
       let lines = [];
       let blocked = 0;
       let allowed = 0;
+      let warn = 0;
 
       for (const [name, data] of Object.entries(filters)) {
         lines.push(`${name} (${data.category}) ${data.status}`);
+
         if (data.status === "❌") blocked++;
-        if (data.status === "✔") allowed++;
+        else if (data.status === "✔") allowed++;
+        else warn++;
       }
 
       return i.editReply({
@@ -289,10 +334,10 @@ client.on("interactionCreate", async i => {
             .setDescription(lines.join("\n"))
             .addFields({
               name: "Summary",
-              value: `${allowed} unblocked • ${blocked} blocked`
+              value: `${allowed} unblocked • ${blocked} blocked • ${warn} issues`
             })
             .setFooter({
-              text: "Results are estimated except FortiGuard"
+              text: "Includes real DNS + FortiGuard checks"
             })
             .setTimestamp()
         ]
@@ -321,7 +366,7 @@ client.on("interactionCreate", async i => {
       }
 
       return i.editReply({
-        embeds: [embed(`✅ ${type.toUpperCase()}`, 0xe67e22, [
+        embeds: [embed(type.toUpperCase(), 0xe67e22, [
           { name: "User", value: user.tag },
           { name: "Reason", value: reason }
         ])]
@@ -343,7 +388,7 @@ client.on("interactionCreate", async i => {
       saveDB();
 
       return i.editReply({
-        embeds: [embed("⚠️ Warned", 0xf1c40f, [
+        embeds: [embed("Warned", 0xf1c40f, [
           { name: "User", value: user.tag },
           { name: "Reason", value: reason }
         ])]
@@ -355,7 +400,7 @@ client.on("interactionCreate", async i => {
       const list = warns[user.id] || [];
 
       return i.reply({
-        embeds: [embed("📊 Warnings", 0x3498db, [
+        embeds: [embed("Warnings", 0x3498db, [
           { name: user.tag, value: list.join("\n") || "None" }
         ])]
       });
@@ -372,7 +417,7 @@ client.on("interactionCreate", async i => {
 // ───────── LOGIN ─────────
 
 if (!process.env.TOKEN) {
-  console.log("❌ Missing TOKEN");
+  console.log("Missing TOKEN");
   process.exit(1);
 }
 
