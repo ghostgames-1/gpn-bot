@@ -58,62 +58,58 @@ function updateStatus() {
 
 // ───────── SAFE FETCH ─────────
 
-function fetchSite(url) {
+function fetchURL(url) {
   return new Promise(resolve => {
     try {
-      const req = https.get(url, res => {
+      https.get(url, res => {
         let data = "";
         res.on("data", d => data += d);
-        res.on("end", () => resolve(data.toLowerCase()));
-      });
-
-      req.on("error", () => resolve(null));
-      req.setTimeout(5000, () => {
-        req.destroy();
-        resolve(null);
-      });
-
+        res.on("end", () => resolve(data));
+      }).on("error", () => resolve(null));
     } catch {
       resolve(null);
     }
   });
 }
 
-// ───────── FILTER ENGINE ─────────
+// ───────── REAL CHECK FUNCTION ─────────
 
-const FILTERS = {
-  FortiGuard: ["fortiguard"],
-  Lightspeed: ["lightspeed"],
-  Securly: ["securly"],
-  GoGuardian: ["goguardian"],
-  Blocksi: ["blocksi"],
-  Linewize: ["linewize"],
-  ContentKeeper: ["contentkeeper"]
-};
+async function checkFortiGuard(domain) {
+  try {
+    const apiURL = `https://api.allorigins.win/raw?url=https://fortiguard.com/webfilter?q=${domain}`;
+    const data = await fetchURL(apiURL);
+
+    if (!data) return { status: "Error", category: "Unknown" };
+
+    const text = data.toLowerCase();
+
+    let status = "Unknown";
+    if (text.includes("block")) status = "Blocked";
+    if (text.includes("allow")) status = "Allowed";
+
+    let category = "Unknown";
+    const match = text.match(/category:.*?<.*?>(.*?)</);
+    if (match) category = match[1];
+
+    return { status, category };
+
+  } catch {
+    return { status: "Error", category: "Unknown" };
+  }
+}
 
 // ───────── COMMANDS ─────────
 
 const commands = [
 
-  new SlashCommandBuilder()
-    .setName("ping")
-    .setDescription("🏓 Check bot latency"),
-
-  new SlashCommandBuilder()
-    .setName("help")
-    .setDescription("📋 Show all commands"),
-
-  new SlashCommandBuilder()
-    .setName("about")
-    .setDescription("🤖 Bot info"),
-
-  new SlashCommandBuilder()
-    .setName("analytics")
-    .setDescription("📊 Server analytics"),
+  new SlashCommandBuilder().setName("ping").setDescription("🏓 Check latency"),
+  new SlashCommandBuilder().setName("help").setDescription("📋 Show commands"),
+  new SlashCommandBuilder().setName("about").setDescription("🤖 Bot info"),
+  new SlashCommandBuilder().setName("analytics").setDescription("📊 Server stats"),
 
   new SlashCommandBuilder()
     .setName("checkall")
-    .setDescription("🌐 Scan a website across filters")
+    .setDescription("🌐 Check website filtering status")
     .addStringOption(o =>
       o.setName("url")
         .setDescription("Website URL")
@@ -122,79 +118,42 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("say")
-    .setDescription("📢 Make the bot say something (Owner only)")
+    .setDescription("📢 Owner only message")
     .addStringOption(o =>
       o.setName("message")
-        .setDescription("Message to send")
+        .setDescription("Message")
         .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("kick")
-    .setDescription("👢 Kick a user")
-    .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to kick")
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
-    ),
+    .setDescription("👢 Kick user")
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason")),
 
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("🔨 Ban a user")
-    .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to ban")
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
-    ),
+    .setDescription("🔨 Ban user")
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason")),
 
   new SlashCommandBuilder()
     .setName("timeout")
-    .setDescription("⏳ Timeout a user")
-    .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to timeout")
-        .setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName("minutes")
-        .setDescription("Minutes")
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
-    ),
+    .setDescription("⏳ Timeout user")
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+    .addIntegerOption(o => o.setName("minutes").setDescription("Minutes").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason")),
 
   new SlashCommandBuilder()
     .setName("warn")
-    .setDescription("⚠️ Warn a user")
-    .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
-        .setRequired(true)
-    ),
+    .setDescription("⚠️ Warn user")
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("warnings")
     .setDescription("📊 View warnings")
-    .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User")
-        .setRequired(true)
-    )
+    .addUserOption(o => o.setName("user").setDescription("User").setRequired(true))
 
 ].map(c => c.toJSON());
 
@@ -206,25 +165,14 @@ async function registerCommands() {
   await client.application.fetch();
 
   try {
-    // ✅ CLEAR OLD GUILD COMMANDS (prevents duplicates)
-    const guilds = await client.guilds.fetch();
-    for (const [, guild] of guilds) {
-      await rest.put(
-        Routes.applicationGuildCommands(client.application.id, guild.id),
-        { body: [] }
-      );
-    }
-
-    // ✅ REGISTER GLOBAL COMMANDS
     await rest.put(
       Routes.applicationCommands(client.application.id),
       { body: commands }
     );
 
-    console.log("🌍 Global commands synced (no duplicates)");
-
+    console.log("🌍 Global commands synced");
   } catch (err) {
-    console.error("❌ Command register error:", err);
+    console.error("❌ Register error:", err);
   }
 }
 
@@ -235,7 +183,6 @@ client.once("ready", async () => {
 
   await registerCommands();
   updateStatus();
-
   setInterval(updateStatus, 15000);
 });
 
@@ -275,69 +222,36 @@ client.on("interactionCreate", async i => {
         ])]
       });
 
-    // ───── SAY (OWNER ONLY) ─────
-
+    // OWNER SAY
     if (cmd === "say") {
-      if (guild.ownerId !== i.user.id) {
-        return i.reply({
-          content: "❌ Only the server owner can use this",
-          ephemeral: true
-        });
-      }
+      if (guild.ownerId !== i.user.id)
+        return i.reply({ content: "❌ Owner only", ephemeral: true });
 
       await i.deferReply({ ephemeral: true });
+      await i.channel.send(i.options.getString("message"));
 
-      const msg = i.options.getString("message");
-
-      await i.channel.send(msg);
-
-      return i.editReply({
-        embeds: [embed("✅ Message Sent", 0x2ecc71)]
-      });
+      return i.editReply({ embeds: [embed("✅ Sent", 0x2ecc71)] });
     }
 
-    // ───── CHECKALL ─────
-
+    // REAL CHECKALL
     if (cmd === "checkall") {
       await i.deferReply();
 
       let url = i.options.getString("url");
-      if (!url.startsWith("http")) url = "https://" + url;
+      const domain = url.replace(/^https?:\/\//, "").split("/")[0];
 
-      const html = await fetchSite(url);
-
-      if (!html) {
-        return i.editReply({
-          embeds: [embed("❌ Scan Failed", 0xe74c3c, [
-            { name: "Result", value: "Site unreachable or blocked" }
-          ])]
-        });
-      }
-
-      let results = [];
-      let blocked = 0;
-
-      for (const [name, sigs] of Object.entries(FILTERS)) {
-        const hit = sigs.some(s => html.includes(s));
-
-        if (hit) {
-          results.push(`❌ ${name}`);
-          blocked++;
-        } else {
-          results.push(`✔ ${name}`);
-        }
-      }
+      const result = await checkFortiGuard(domain);
 
       return i.editReply({
-        embeds: [embed("🌐 Scan Results", blocked ? 0xe74c3c : 0x2ecc71, [
-          { name: "URL", value: url },
-          { name: "Filters", value: results.join("\n") }
+        embeds: [embed("🌐 Filter Check", 0x3498db, [
+          { name: "URL", value: domain },
+          { name: "FortiGuard Status", value: result.status },
+          { name: "Category", value: result.category }
         ])]
       });
     }
 
-    // ───── MODERATION ─────
-
+    // MODERATION
     async function mod(type) {
       await i.deferReply();
 
@@ -346,8 +260,8 @@ client.on("interactionCreate", async i => {
 
       const user = i.options.getUser("user");
       const reason = i.options.getString("reason") || "No reason";
-
       const member = await guild.members.fetch(user.id).catch(() => null);
+
       if (!member) return i.editReply("User not found");
 
       if (type === "kick") await member.kick(reason);
@@ -358,7 +272,7 @@ client.on("interactionCreate", async i => {
       }
 
       return i.editReply({
-        embeds: [embed(`✅ ${type.toUpperCase()}`, 0xe67e22, [
+        embeds: [embed(`✅ ${type}`, 0xe67e22, [
           { name: "User", value: user.tag },
           { name: "Reason", value: reason }
         ])]
@@ -401,11 +315,8 @@ client.on("interactionCreate", async i => {
   } catch (err) {
     console.error(err);
 
-    if (i.deferred) {
-      i.editReply("❌ Error occurred");
-    } else {
-      i.reply({ content: "❌ Error occurred", ephemeral: true });
-    }
+    if (i.deferred) i.editReply("❌ Error");
+    else i.reply({ content: "❌ Error", ephemeral: true });
   }
 });
 
