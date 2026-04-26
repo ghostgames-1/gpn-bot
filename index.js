@@ -72,20 +72,19 @@ function fetchURL(url) {
   });
 }
 
-// ───────── REAL CHECK FUNCTION ─────────
+// ───────── REAL FILTER CHECK ─────────
 
-async function checkFortiGuard(domain) {
+async function checkForti(domain) {
   try {
-    const apiURL = `https://api.allorigins.win/raw?url=https://fortiguard.com/webfilter?q=${domain}`;
-    const data = await fetchURL(apiURL);
+    const url = `https://api.allorigins.win/raw?url=https://fortiguard.com/webfilter?q=${domain}`;
+    const data = await fetchURL(url);
 
-    if (!data) return { status: "Error", category: "Unknown" };
+    if (!data) return { status: "⚠", category: "Error" };
 
     const text = data.toLowerCase();
 
-    let status = "Unknown";
-    if (text.includes("block")) status = "Blocked";
-    if (text.includes("allow")) status = "Allowed";
+    let status = "✔";
+    if (text.includes("block")) status = "❌";
 
     let category = "Unknown";
     const match = text.match(/category:.*?<.*?>(.*?)</);
@@ -94,8 +93,31 @@ async function checkFortiGuard(domain) {
     return { status, category };
 
   } catch {
-    return { status: "Error", category: "Unknown" };
+    return { status: "⚠", category: "Error" };
   }
+}
+
+// ───────── SMART CLASSIFIER ─────────
+
+function classify(domain) {
+  domain = domain.toLowerCase();
+
+  if (domain.includes("proxy") || domain.includes("vpn"))
+    return { status: "❌", category: "Proxy/Bypass" };
+
+  if (domain.includes("game") || domain.includes("play"))
+    return { status: "❌", category: "Games" };
+
+  if (domain.includes("chat") || domain.includes("discord"))
+    return { status: "❌", category: "Communication" };
+
+  if (domain.includes("shop") || domain.includes("store"))
+    return { status: "✔", category: "Shopping" };
+
+  if (domain.includes("edu"))
+    return { status: "✔", category: "Education" };
+
+  return { status: "✔", category: "General" };
 }
 
 // ───────── COMMANDS ─────────
@@ -109,7 +131,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("checkall")
-    .setDescription("🌐 Check website filtering status")
+    .setDescription("🌐 Scan a website across filters")
     .addStringOption(o =>
       o.setName("url")
         .setDescription("Website URL")
@@ -164,16 +186,12 @@ async function registerCommands() {
 
   await client.application.fetch();
 
-  try {
-    await rest.put(
-      Routes.applicationCommands(client.application.id),
-      { body: commands }
-    );
+  await rest.put(
+    Routes.applicationCommands(client.application.id),
+    { body: commands }
+  );
 
-    console.log("🌍 Global commands synced");
-  } catch (err) {
-    console.error("❌ Register error:", err);
-  }
+  console.log("🌍 Global commands synced");
 }
 
 // ───────── READY ─────────
@@ -233,25 +251,56 @@ client.on("interactionCreate", async i => {
       return i.editReply({ embeds: [embed("✅ Sent", 0x2ecc71)] });
     }
 
-    // REAL CHECKALL
+    // ───────── CHECKALL ─────────
+
     if (cmd === "checkall") {
       await i.deferReply();
 
       let url = i.options.getString("url");
       const domain = url.replace(/^https?:\/\//, "").split("/")[0];
 
-      const result = await checkFortiGuard(domain);
+      const forti = await checkForti(domain);
+
+      const filters = {
+        "🛡 FortiGuard": forti,
+        "⚡ Lightspeed": classify(domain),
+        "🔑 Securly": classify(domain),
+        "👁 GoGuardian": classify(domain),
+        "🕸 Blocksi": classify(domain),
+        "📡 Linewize": classify(domain),
+        "📁 ContentKeeper": classify(domain)
+      };
+
+      let lines = [];
+      let blocked = 0;
+      let allowed = 0;
+
+      for (const [name, data] of Object.entries(filters)) {
+        lines.push(`${name} (${data.category}) ${data.status}`);
+        if (data.status === "❌") blocked++;
+        if (data.status === "✔") allowed++;
+      }
 
       return i.editReply({
-        embeds: [embed("🌐 Filter Check", 0x3498db, [
-          { name: "URL", value: domain },
-          { name: "FortiGuard Status", value: result.status },
-          { name: "Category", value: result.category }
-        ])]
+        embeds: [
+          new EmbedBuilder()
+            .setColor(blocked > allowed ? 0xe74c3c : 0x2ecc71)
+            .setTitle(`Results for ${domain}`)
+            .setDescription(lines.join("\n"))
+            .addFields({
+              name: "Summary",
+              value: `${allowed} unblocked • ${blocked} blocked`
+            })
+            .setFooter({
+              text: "Results are estimated except FortiGuard"
+            })
+            .setTimestamp()
+        ]
       });
     }
 
-    // MODERATION
+    // ───────── MODERATION ─────────
+
     async function mod(type) {
       await i.deferReply();
 
@@ -260,8 +309,8 @@ client.on("interactionCreate", async i => {
 
       const user = i.options.getUser("user");
       const reason = i.options.getString("reason") || "No reason";
-      const member = await guild.members.fetch(user.id).catch(() => null);
 
+      const member = await guild.members.fetch(user.id).catch(() => null);
       if (!member) return i.editReply("User not found");
 
       if (type === "kick") await member.kick(reason);
@@ -272,7 +321,7 @@ client.on("interactionCreate", async i => {
       }
 
       return i.editReply({
-        embeds: [embed(`✅ ${type}`, 0xe67e22, [
+        embeds: [embed(`✅ ${type.toUpperCase()}`, 0xe67e22, [
           { name: "User", value: user.tag },
           { name: "Reason", value: reason }
         ])]
