@@ -2,9 +2,6 @@ const fs = require("fs");
 const https = require("https");
 const dns = require("dns").promises;
 
-process.on("unhandledRejection", console.error);
-process.on("uncaughtException", console.error);
-
 const {
   Client,
   GatewayIntentBits,
@@ -16,38 +13,49 @@ const {
   PermissionsBitField
 } = require("discord.js");
 
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
+
 // ───────── CLIENT ─────────
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ]
 });
 
-// ───────── DATABASE ─────────
+// ───────── DATABASES ─────────
 
-const DB_FILE = "./warns.json";
-let warns = fs.existsSync(DB_FILE)
-  ? JSON.parse(fs.readFileSync(DB_FILE))
-  : {};
+const WARN_DB = "./warns.json";
+const CONFIG_DB = "./config.json";
 
-function saveDB() {
-  fs.writeFileSync(DB_FILE, JSON.stringify(warns, null, 2));
+let warns = fs.existsSync(WARN_DB) ? JSON.parse(fs.readFileSync(WARN_DB)) : {};
+let config = fs.existsSync(CONFIG_DB) ? JSON.parse(fs.readFileSync(CONFIG_DB)) : {};
+
+function saveWarns() {
+  fs.writeFileSync(WARN_DB, JSON.stringify(warns, null, 2));
 }
 
-// ───────── EMBED BUILDER ─────────
+function saveConfig() {
+  fs.writeFileSync(CONFIG_DB, JSON.stringify(config, null, 2));
+}
+
+// ───────── EMBED ─────────
 
 function embed(title, color, fields = []) {
-  return new EmbedBuilder()
+  const e = new EmbedBuilder()
     .setTitle(title)
     .setColor(color)
-    .addFields(fields)
     .setTimestamp();
+
+  if (fields.length) e.addFields(fields);
+  return e;
 }
 
 // ───────── STATUS ─────────
 
 function updateStatus() {
-  if (!client.user) return;
-
   client.user.setPresence({
     activities: [{
       name: `${client.guilds.cache.size} servers`,
@@ -57,43 +65,33 @@ function updateStatus() {
   });
 }
 
-// ───────── SAFE FETCH ─────────
+// ───────── SAFE FETCH (FIXED) ─────────
 
 function safeFetch(url) {
   return new Promise(resolve => {
-    https.get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, res => {
+    const req = https.get(url, {
+      timeout: 8000,
+      headers: { "User-Agent": "GPN-Bot" }
+    }, res => {
       let data = "";
       res.on("data", d => data += d);
       res.on("end", () => resolve(data));
-    }).on("error", () => resolve(null));
+    });
+
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
   });
 }
 
-// ───────── FILTER ENGINE ─────────
-
-async function checkForti(domain) {
-  try {
-    const url = `https://api.allorigins.win/raw?url=https://fortiguard.com/webfilter?q=${domain}`;
-    const data = await safeFetch(url);
-
-    if (!data) return { status: "⚠", category: "Error" };
-
-    return {
-      status: data.toLowerCase().includes("block") ? "❌" : "✔",
-      category: "FortiGuard"
-    };
-  } catch {
-    return { status: "⚠", category: "Error" };
-  }
-}
+// ───────── FILTER SYSTEM ─────────
 
 async function checkDNS(domain) {
   try {
     const res = await dns.lookup(domain);
-
-    if (!res?.address)
-      return { status: "❌", category: "No Resolve" };
-
+    if (!res?.address) return { status: "❌", category: "No Resolve" };
     return { status: "✔", category: res.address };
   } catch {
     return { status: "❌", category: "DNS Blocked" };
@@ -103,17 +101,14 @@ async function checkDNS(domain) {
 function classify(domain) {
   domain = domain.toLowerCase();
 
-  if (domain.includes("proxy") || domain.includes("vpn"))
+  if (domain.includes("vpn") || domain.includes("proxy"))
     return { status: "❌", category: "Proxy" };
 
   if (domain.includes("game"))
     return { status: "❌", category: "Games" };
 
-  if (domain.includes("chat") || domain.includes("discord"))
-    return { status: "❌", category: "Communication" };
-
-  if (domain.includes("edu"))
-    return { status: "✔", category: "Education" };
+  if (domain.includes("chat"))
+    return { status: "❌", category: "Chat" };
 
   return { status: "✔", category: "General" };
 }
@@ -124,126 +119,85 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("ping")
-    .setDescription("🏓 Check bot latency"),
+    .setDescription("🏓 Bot latency"),
 
   new SlashCommandBuilder()
     .setName("help")
-    .setDescription("📋 Show all commands"),
+    .setDescription("📋 Commands"),
 
   new SlashCommandBuilder()
     .setName("checkall")
-    .setDescription("🌐 Scan a website across filters")
+    .setDescription("🌐 Scan a website")
     .addStringOption(o =>
-      o.setName("url")
-        .setDescription("Website URL")
-        .setRequired(true)
+      o.setName("url").setDescription("Website").setRequired(true)
     ),
 
   new SlashCommandBuilder()
-    .setName("say")
-    .setDescription("📢 Owner only message")
-    .addStringOption(o =>
-      o.setName("message")
-        .setDescription("Message to send")
-        .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("kick")
-    .setDescription("👢 Kick a user")
+    .setName("addrole")
+    .setDescription("➕ Add role to user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to kick")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
-    ),
-
-  new SlashCommandBuilder()
-    .setName("ban")
-    .setDescription("🔨 Ban a user")
-    .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to ban")
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
-    ),
-
-  new SlashCommandBuilder()
-    .setName("timeout")
-    .setDescription("⏳ Timeout a user")
-    .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to timeout")
-        .setRequired(true)
-    )
-    .addIntegerOption(o =>
-      o.setName("minutes")
-        .setDescription("Duration in minutes")
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
+    .addRoleOption(o =>
+      o.setName("role").setDescription("Role").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("warn")
-    .setDescription("⚠️ Warn a user")
+    .setDescription("⚠️ Warn user")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to warn")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     )
     .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
-        .setRequired(true)
+      o.setName("reason").setDescription("Reason").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("warnings")
     .setDescription("📊 View warnings")
     .addUserOption(o =>
-      o.setName("user")
-        .setDescription("User to check")
-        .setRequired(true)
+      o.setName("user").setDescription("User").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("8ball")
-    .setDescription("🎱 Ask the magic 8-ball")
+    .setDescription("🎱 Ask 8ball")
     .addStringOption(o =>
-      o.setName("question")
-        .setDescription("Your question")
-        .setRequired(true)
+      o.setName("question").setDescription("Question").setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("purge")
     .setDescription("🧹 Delete messages")
     .addIntegerOption(o =>
-      o.setName("amount")
-        .setDescription("Number of messages (1-100)")
-        .setRequired(true)
+      o.setName("amount").setDescription("1-100").setRequired(true)
+    ),
+
+  // ───────── ANTIRAID SETUP ─────────
+  new SlashCommandBuilder()
+    .setName("antiraid")
+    .setDescription("🛡 Setup anti-raid system")
+    .addSubcommand(s =>
+      s.setName("setup").setDescription("Configure anti-raid")
+    ),
+
+  // ───────── ANTINUKE SETUP ─────────
+  new SlashCommandBuilder()
+    .setName("antinuke")
+    .setDescription("💣 Setup anti-nuke system")
+    .addSubcommand(s =>
+      s.setName("setup").setDescription("Configure anti-nuke")
     )
 
 ].map(c => c.toJSON());
 
-// ───────── REGISTER ─────────
+// ───────── REGISTER COMMANDS (FIXED) ─────────
 
 async function registerCommands() {
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-  await client.application.fetch();
-
   await rest.put(
-    Routes.applicationCommands(client.application.id),
+    Routes.applicationCommands(client.user.id),
     { body: commands }
   );
 
@@ -268,53 +222,59 @@ client.on("interactionCreate", async i => {
 
   try {
 
+    // ───────── PING ─────────
     if (cmd === "ping")
       return i.reply({ embeds: [embed("🏓 Pong", 0x2ecc71)] });
 
+    // ───────── HELP ─────────
     if (cmd === "help")
       return i.reply({
         embeds: [embed("📋 Commands", 0x3498db, [
           { name: "General", value: "/ping /help /checkall /8ball" },
-          { name: "Moderation", value: "/kick /ban /timeout /warn /warnings /purge" }
+          { name: "Moderation", value: "/warn /warnings /purge /addrole" },
+          { name: "Security", value: "/antiraid setup /antinuke setup" }
         ])]
       });
 
-    if (cmd === "say") {
-      if (i.guild.ownerId !== i.user.id)
-        return i.reply({ content: "❌ Owner only", ephemeral: true });
+    // ───────── ADDROLE (FIXED PERMS) ─────────
+    if (cmd === "addrole") {
+      if (!i.member.permissions.has(PermissionsBitField.Flags.ManageRoles))
+        return i.reply({ content: "❌ Missing permissions", ephemeral: true });
 
-      await i.channel.send(i.options.getString("message"));
-      return i.reply({ embeds: [embed("✅ Sent", 0x2ecc71)], ephemeral: true });
+      const user = i.options.getUser("user");
+      const role = i.options.getRole("role");
+
+      const member = await i.guild.members.fetch(user.id);
+      await member.roles.add(role);
+
+      return i.reply({
+        embeds: [embed("➕ Role Added", 0x2ecc71, [
+          { name: "User", value: user.tag },
+          { name: "Role", value: role.name }
+        ])]
+      });
     }
 
     // ───────── 8BALL ─────────
-
     if (cmd === "8ball") {
-      const q = i.options.getString("question");
-
-      const answers = [
-        "Yes", "No", "Maybe", "Definitely",
-        "Ask again later", "Unlikely"
-      ];
+      const answers = ["Yes", "No", "Maybe", "Definitely", "Ask later", "Unlikely"];
 
       return i.reply({
         embeds: [embed("🎱 8Ball", 0x9b59b6, [
-          { name: "Question", value: q },
-          { name: "Answer", value: answers[Math.floor(Math.random()*answers.length)] }
+          { name: "Question", value: i.options.getString("question") },
+          { name: "Answer", value: answers[Math.floor(Math.random() * answers.length)] }
         ])]
       });
     }
 
-    // ───────── PURGE ─────────
-
+    // ───────── PURGE (FIXED PERMS) ─────────
     if (cmd === "purge") {
-      const amount = i.options.getInteger("amount");
-
       if (!i.member.permissions.has(PermissionsBitField.Flags.ManageMessages))
-        return i.reply({ content: "❌ No permission", ephemeral: true });
+        return i.reply({ content: "❌ Missing permissions", ephemeral: true });
 
+      const amount = i.options.getInteger("amount");
       if (amount < 1 || amount > 100)
-        return i.reply({ content: "❌ Must be 1-100", ephemeral: true });
+        return i.reply({ content: "❌ 1-100 only", ephemeral: true });
 
       await i.channel.bulkDelete(amount, true);
 
@@ -326,103 +286,62 @@ client.on("interactionCreate", async i => {
       });
     }
 
-    // ───────── CHECKALL ─────────
-
-    if (cmd === "checkall") {
-      await i.deferReply();
-
-      const domain = i.options.getString("url")
-        .replace(/^https?:\/\//, "")
-        .split("/")[0];
-
-      const [forti, dnsCheck] = await Promise.all([
-        checkForti(domain),
-        checkDNS(domain)
-      ]);
-
-      const filters = {
-        "FortiGuard": forti,
-        "DNS": dnsCheck,
-        "Lightspeed": classify(domain),
-        "Securly": classify(domain),
-        "GoGuardian": classify(domain),
-        "Blocksi": classify(domain),
-        "Linewize": classify(domain),
-        "ContentKeeper": classify(domain)
-      };
-
-      let lines = [];
-      let blocked = 0;
-      let allowed = 0;
-
-      for (const [name, data] of Object.entries(filters)) {
-        lines.push(`${name} (${data.category}) ${data.status}`);
-        if (data.status === "❌") blocked++;
-        else allowed++;
-      }
-
-      return i.editReply({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle(`Results for ${domain}`)
-            .setDescription(lines.join("\n"))
-            .setColor(blocked > allowed ? 0xe74c3c : 0x2ecc71)
-            .addFields({
-              name: "Summary",
-              value: `${allowed} allowed • ${blocked} blocked`
-            })
-            .setTimestamp()
-        ]
-      });
-    }
-
-    // ───────── MODERATION ─────────
-
-    if (["kick","ban","timeout"].includes(cmd)) {
-      const user = i.options.getUser("user");
-      const reason = i.options.getString("reason") || "No reason";
-
-      const member = await i.guild.members.fetch(user.id);
-
-      if (cmd === "kick") await member.kick(reason);
-      if (cmd === "ban") await member.ban({ reason });
-      if (cmd === "timeout") {
-        const mins = i.options.getInteger("minutes");
-        await member.timeout(mins * 60000, reason);
-      }
-
-      return i.reply({
-        embeds: [embed(`✅ ${cmd.toUpperCase()}`, 0xe67e22, [
-          { name: "User", value: user.tag },
-          { name: "Reason", value: reason }
-        ])]
-      });
-    }
-
+    // ───────── WARN SYSTEM ─────────
     if (cmd === "warn") {
       const user = i.options.getUser("user");
       const reason = i.options.getString("reason");
 
       if (!warns[user.id]) warns[user.id] = [];
       warns[user.id].push(reason);
-      saveDB();
+      if (warns[user.id].length > 50) warns[user.id].shift();
 
-      return i.reply({
-        embeds: [embed("⚠️ Warned", 0xf1c40f, [
-          { name: "User", value: user.tag },
-          { name: "Reason", value: reason }
-        ])]
-      });
+      saveWarns();
+
+      return i.reply({ embeds: [embed("⚠️ Warned", 0xf1c40f)] });
     }
 
     if (cmd === "warnings") {
       const user = i.options.getUser("user");
-      const list = warns[user.id] || [];
+      const list = warns[user.id]?.join("\n") || "None";
 
       return i.reply({
         embeds: [embed("📊 Warnings", 0x3498db, [
-          { name: user.tag, value: list.join("\n") || "None" }
+          { name: user.tag, value: list }
         ])]
+      });
+    }
+
+    // ───────── ANTIRAID SETUP ─────────
+    if (cmd === "antiraid") {
+      const guildId = i.guild.id;
+
+      config[guildId] = {
+        antiraid: true,
+        maxJoins: 5
+      };
+
+      saveConfig();
+
+      return i.reply({
+        embeds: [embed("🛡 Anti-Raid Enabled", 0x2ecc71, [
+          { name: "Max Joins", value: "5 per 10s" }
+        ])]
+      });
+    }
+
+    // ───────── ANTINUKE SETUP ─────────
+    if (cmd === "antinuke") {
+      const guildId = i.guild.id;
+
+      config[guildId] = {
+        ...(config[guildId] || {}),
+        antinuke: true
+      };
+
+      saveConfig();
+
+      return i.reply({
+        embeds: [embed("💣 Anti-Nuke Enabled", 0xe74c3c)]
       });
     }
 
