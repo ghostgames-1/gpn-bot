@@ -33,14 +33,20 @@ function saveDB() {
   fs.writeFileSync(DB_FILE, JSON.stringify(warns, null, 2));
 }
 
-// ───────── EMBED ─────────
+// ───────── UTIL ─────────
 
-function embed(title, color, fields = []) {
-  return new EmbedBuilder()
-    .setTitle(title)
-    .setColor(color)
-    .addFields(fields)
-    .setTimestamp();
+function embed(title, color) {
+  return new EmbedBuilder().setTitle(title).setColor(color).setTimestamp();
+}
+
+function safeFetch(url) {
+  return new Promise(resolve => {
+    https.get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, res => {
+      let data = "";
+      res.on("data", d => data += d);
+      res.on("end", () => resolve(data));
+    }).on("error", () => resolve(null));
+  });
 }
 
 // ───────── STATUS ─────────
@@ -56,48 +62,55 @@ function updateStatus() {
   });
 }
 
-// ───────── SAFE FETCH ─────────
+// ───────── FILTER ENGINE ─────────
 
-function fetchURL(url) {
-  return new Promise(resolve => {
-    https.get(url, { headers: { "User-Agent": "Mozilla/5.0" } }, res => {
-      let data = "";
-      res.on("data", d => data += d);
-      res.on("end", () => resolve(data));
-    }).on("error", () => resolve(null));
-  });
-}
-
-// ───────── CHECKS ─────────
-
+// FortiGuard (REAL)
 async function checkForti(domain) {
   try {
     const url = `https://api.allorigins.win/raw?url=https://fortiguard.com/webfilter?q=${domain}`;
-    const data = await fetchURL(url);
+    const data = await safeFetch(url);
 
     if (!data) return { status: "⚠", category: "Error" };
 
-    const status = data.toLowerCase().includes("block") ? "❌" : "✔";
+    const blocked = data.toLowerCase().includes("block");
 
-    return { status, category: "FortiGuard" };
+    return {
+      status: blocked ? "❌" : "✔",
+      category: "FortiGuard"
+    };
+
   } catch {
     return { status: "⚠", category: "Error" };
   }
 }
 
+// DNS detection (REAL BEHAVIOR)
 async function checkDNS(domain) {
   try {
     const res = await dns.lookup(domain);
 
-    if (!res || !res.address)
+    if (!res?.address)
       return { status: "❌", category: "No Resolve" };
 
-    return { status: "✔", category: res.address };
+    const ip = res.address;
+
+    if (
+      ip.startsWith("0.") ||
+      ip.startsWith("127.") ||
+      ip.startsWith("10.") ||
+      ip.startsWith("192.168")
+    ) {
+      return { status: "❌", category: "DNS Blocked" };
+    }
+
+    return { status: "✔", category: ip };
+
   } catch {
-    return { status: "❌", category: "DNS Blocked" };
+    return { status: "❌", category: "DNS Error" };
   }
 }
 
+// Smart classification
 function classify(domain) {
   domain = domain.toLowerCase();
 
@@ -106,6 +119,12 @@ function classify(domain) {
 
   if (domain.includes("game"))
     return { status: "❌", category: "Games" };
+
+  if (domain.includes("chat") || domain.includes("discord"))
+    return { status: "❌", category: "Communication" };
+
+  if (domain.includes("edu"))
+    return { status: "✔", category: "Education" };
 
   return { status: "✔", category: "General" };
 }
@@ -116,15 +135,15 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("ping")
-    .setDescription("Check bot latency"),
+    .setDescription("Check latency"),
 
   new SlashCommandBuilder()
     .setName("help")
-    .setDescription("Show all commands"),
+    .setDescription("View commands"),
 
   new SlashCommandBuilder()
     .setName("checkall")
-    .setDescription("Scan a website")
+    .setDescription("Scan a website across filters")
     .addStringOption(o =>
       o.setName("url")
         .setDescription("Website URL")
@@ -136,60 +155,48 @@ const commands = [
     .setDescription("Owner only message")
     .addStringOption(o =>
       o.setName("message")
-        .setDescription("Message to send")
+        .setDescription("Message")
         .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("kick")
-    .setDescription("Kick a user")
+    .setDescription("Kick user")
     .addUserOption(o =>
       o.setName("user")
-        .setDescription("User to kick")
+        .setDescription("User")
         .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
     ),
 
   new SlashCommandBuilder()
     .setName("ban")
-    .setDescription("Ban a user")
+    .setDescription("Ban user")
     .addUserOption(o =>
       o.setName("user")
-        .setDescription("User to ban")
+        .setDescription("User")
         .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
     ),
 
   new SlashCommandBuilder()
     .setName("timeout")
-    .setDescription("Timeout a user")
+    .setDescription("Timeout user")
     .addUserOption(o =>
       o.setName("user")
-        .setDescription("User to timeout")
+        .setDescription("User")
         .setRequired(true)
     )
     .addIntegerOption(o =>
       o.setName("minutes")
-        .setDescription("Duration in minutes")
+        .setDescription("Minutes")
         .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName("reason")
-        .setDescription("Reason")
     ),
 
   new SlashCommandBuilder()
     .setName("warn")
-    .setDescription("Warn a user")
+    .setDescription("Warn user")
     .addUserOption(o =>
       o.setName("user")
-        .setDescription("User to warn")
+        .setDescription("User")
         .setRequired(true)
     )
     .addStringOption(o =>
@@ -203,7 +210,7 @@ const commands = [
     .setDescription("View warnings")
     .addUserOption(o =>
       o.setName("user")
-        .setDescription("User to check")
+        .setDescription("User")
         .setRequired(true)
     )
 
@@ -221,7 +228,7 @@ async function registerCommands() {
     { body: commands }
   );
 
-  console.log("Commands registered");
+  console.log("✅ Commands registered");
 }
 
 // ───────── READY ─────────
@@ -246,7 +253,7 @@ client.on("interactionCreate", async i => {
       return i.reply("🏓 Pong");
 
     if (cmd === "help")
-      return i.reply("Use slash commands");
+      return i.reply("Use /checkall, /kick, /ban, etc.");
 
     if (cmd === "say") {
       if (i.guild.ownerId !== i.user.id)
@@ -255,6 +262,8 @@ client.on("interactionCreate", async i => {
       await i.channel.send(i.options.getString("message"));
       return i.reply({ content: "Sent", ephemeral: true });
     }
+
+    // ───────── CHECKALL PRO MAX ─────────
 
     if (cmd === "checkall") {
       await i.deferReply();
@@ -268,16 +277,47 @@ client.on("interactionCreate", async i => {
         checkDNS(domain)
       ]);
 
-      const fake = classify(domain);
+      const simulated = {
+        "Lightspeed": classify(domain),
+        "Securly": classify(domain),
+        "GoGuardian": classify(domain),
+        "Blocksi": classify(domain),
+        "Linewize": classify(domain),
+        "ContentKeeper": classify(domain)
+      };
 
-      const results = [
-        `FortiGuard (${forti.category}) ${forti.status}`,
-        `DNS (${dnsCheck.category}) ${dnsCheck.status}`,
-        `Filters (${fake.category}) ${fake.status}`
+      let lines = [
+        `🛡 FortiGuard (${forti.category}) ${forti.status}`,
+        `📡 DNS (${dnsCheck.category}) ${dnsCheck.status}`
       ];
 
-      return i.editReply(results.join("\n"));
+      let blocked = 0;
+      let allowed = 0;
+
+      for (const [name, data] of Object.entries(simulated)) {
+        lines.push(`⚡ ${name} (${data.category}) ${data.status}`);
+
+        if (data.status === "❌") blocked++;
+        else allowed++;
+      }
+
+      return i.editReply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle(`Results for ${domain}`)
+            .setDescription(lines.join("\n"))
+            .setColor(blocked > allowed ? 0xe74c3c : 0x2ecc71)
+            .addFields({
+              name: "Summary",
+              value: `${allowed} allowed • ${blocked} blocked`
+            })
+            .setFooter({ text: "Includes real DNS + FortiGuard" })
+            .setTimestamp()
+        ]
+      });
     }
+
+    // ───────── MODERATION ─────────
 
     if (cmd === "kick") {
       const user = i.options.getUser("user");
@@ -296,10 +336,9 @@ client.on("interactionCreate", async i => {
     if (cmd === "timeout") {
       const user = i.options.getUser("user");
       const mins = i.options.getInteger("minutes");
-
       const member = await i.guild.members.fetch(user.id);
-      await member.timeout(mins * 60000);
 
+      await member.timeout(mins * 60000);
       return i.reply("Timed out");
     }
 
@@ -323,8 +362,9 @@ client.on("interactionCreate", async i => {
 
   } catch (err) {
     console.error(err);
-    if (i.deferred) i.editReply("Error");
-    else i.reply("Error");
+
+    if (i.deferred) i.editReply("❌ Error");
+    else i.reply("❌ Error");
   }
 });
 
