@@ -7,9 +7,11 @@ const {
   SlashCommandBuilder,
   EmbedBuilder,
   PermissionsBitField,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ActivityType,
-  AuditLogEvent,
-  ChannelType
+  AuditLogEvent
 } = require("discord.js");
 
 const client = new Client({
@@ -24,16 +26,21 @@ const client = new Client({
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
-// ───────── SAFE DB ─────────
+// ───────── DATABASE ─────────
 
-const WARN_DB = "./warns.json";
-const CONFIG_DB = "./config.json";
+const DB_FILE = "./config.json";
+const WARN_FILE = "./warns.json";
 
-let warns = fs.existsSync(WARN_DB) ? JSON.parse(fs.readFileSync(WARN_DB)) : {};
-let config = fs.existsSync(CONFIG_DB) ? JSON.parse(fs.readFileSync(CONFIG_DB)) : {};
+let config = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE)) : {};
+let warns = fs.existsSync(WARN_FILE) ? JSON.parse(fs.readFileSync(WARN_FILE)) : {};
 
-const saveWarns = () => fs.writeFileSync(WARN_DB, JSON.stringify(warns, null, 2));
-const saveConfig = () => fs.writeFileSync(CONFIG_DB, JSON.stringify(config, null, 2));
+let served = 0;
+
+const saveConfig = () =>
+  fs.writeFileSync(DB_FILE, JSON.stringify(config, null, 2));
+
+const saveWarns = () =>
+  fs.writeFileSync(WARN_FILE, JSON.stringify(warns, null, 2));
 
 function getGuild(id) {
   if (!config[id]) {
@@ -41,6 +48,7 @@ function getGuild(id) {
       antiraid: false,
       antinuke: false,
       whitelist: [],
+      logChannel: null,
       linkBlock: true
     };
   }
@@ -49,76 +57,86 @@ function getGuild(id) {
 
 // ───────── EMBED ─────────
 
-const embed = (t, c, f=[]) => {
+const embed = (t, c, f = []) => {
   const e = new EmbedBuilder().setTitle(t).setColor(c).setTimestamp();
   if (f.length) e.addFields(f);
   return e;
 };
 
+// ───────── STATUS ─────────
+
+function updateStatus() {
+  client.user.setPresence({
+    activities: [{
+      name: `${client.guilds.cache.size} servers | ${served} served`,
+      type: ActivityType.Watching
+    }]
+  });
+}
+
 // ───────── COMMANDS ─────────
 
 const commands = [
-  new SlashCommandBuilder().setName("ping").setDescription("Ping"),
 
+  new SlashCommandBuilder().setName("ping").setDescription("Ping"),
   new SlashCommandBuilder().setName("help").setDescription("Commands"),
 
-  new SlashCommandBuilder()
-    .setName("kick")
+  new SlashCommandBuilder().setName("kick")
     .setDescription("Kick user")
-    .addUserOption(o=>o.setName("user").setDescription("User").setRequired(true))
-    .addStringOption(o=>o.setName("reason").setDescription("Reason")),
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
-  new SlashCommandBuilder()
-    .setName("ban")
+  new SlashCommandBuilder().setName("ban")
     .setDescription("Ban user")
-    .addUserOption(o=>o.setName("user").setDescription("User").setRequired(true))
-    .addStringOption(o=>o.setName("reason").setDescription("Reason")),
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason")),
 
-  new SlashCommandBuilder()
-    .setName("timeout")
+  new SlashCommandBuilder().setName("timeout")
     .setDescription("Timeout user")
-    .addUserOption(o=>o.setName("user").setDescription("User").setRequired(true))
-    .addIntegerOption(o=>o.setName("minutes").setDescription("Minutes").setRequired(true)),
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addIntegerOption(o => o.setName("minutes").setRequired(true)),
 
-  new SlashCommandBuilder()
-    .setName("setnick")
-    .setDescription("Set nickname")
-    .addUserOption(o=>o.setName("user").setDescription("User").setRequired(true))
-    .addStringOption(o=>o.setName("nickname").setDescription("Nickname").setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName("addrole")
-    .setDescription("Add role")
-    .addUserOption(o=>o.setName("user").setDescription("User").setRequired(true))
-    .addRoleOption(o=>o.setName("role").setDescription("Role").setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName("warn")
+  new SlashCommandBuilder().setName("warn")
     .setDescription("Warn user")
-    .addUserOption(o=>o.setName("user").setDescription("User").setRequired(true))
-    .addStringOption(o=>o.setName("reason").setDescription("Reason").setRequired(true)),
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("reason").setRequired(true)),
 
-  new SlashCommandBuilder()
-    .setName("warnings")
+  new SlashCommandBuilder().setName("warnings")
     .setDescription("View warnings")
-    .addUserOption(o=>o.setName("user").setDescription("User").setRequired(true)),
+    .addUserOption(o => o.setName("user").setRequired(true)),
 
-  new SlashCommandBuilder()
-    .setName("purge")
+  new SlashCommandBuilder().setName("purge")
     .setDescription("Delete messages")
-    .addIntegerOption(o=>o.setName("amount").setDescription("Amount").setRequired(true)),
+    .addIntegerOption(o => o.setName("amount").setRequired(true)),
 
-  new SlashCommandBuilder()
-    .setName("antiraid")
+  new SlashCommandBuilder().setName("addrole")
+    .setDescription("Add role")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addRoleOption(o => o.setName("role").setRequired(true)),
+
+  new SlashCommandBuilder().setName("setnick")
+    .setDescription("Set nickname")
+    .addUserOption(o => o.setName("user").setRequired(true))
+    .addStringOption(o => o.setName("nickname").setRequired(true)),
+
+  new SlashCommandBuilder().setName("setlog")
+    .setDescription("Set logs channel")
+    .addChannelOption(o => o.setName("channel").setRequired(true)),
+
+  new SlashCommandBuilder().setName("whitelist")
+    .setDescription("Whitelist system")
+    .addSubcommand(s => s.setName("add").addUserOption(o => o.setName("user").setRequired(true)))
+    .addSubcommand(s => s.setName("remove").addUserOption(o => o.setName("user").setRequired(true))),
+
+  new SlashCommandBuilder().setName("antiraid")
     .setDescription("Setup anti raid")
-    .addSubcommand(s=>s.setName("setup").setDescription("Enable anti raid")),
+    .addSubcommand(s => s.setName("setup")),
 
-  new SlashCommandBuilder()
-    .setName("antinuke")
+  new SlashCommandBuilder().setName("antinuke")
     .setDescription("Setup anti nuke")
-    .addSubcommand(s=>s.setName("setup").setDescription("Enable anti nuke"))
+    .addSubcommand(s => s.setName("setup"))
 
-].map(c=>c.toJSON());
+].map(c => c.toJSON());
 
 // ───────── READY ─────────
 
@@ -126,164 +144,260 @@ client.once("ready", async () => {
   const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
   await rest.put(
-    Routes.applicationCommands(client.application.id),
+    Routes.applicationCommands(client.user.id),
     { body: commands }
   );
 
-  client.user.setPresence({
-    activities: [{ name: "Protecting servers", type: ActivityType.Watching }]
-  });
+  updateStatus();
+  setInterval(updateStatus, 15000);
 
-  console.log("✅ READY");
+  console.log("✅ FULL PRO BOT READY");
 });
 
-// ───────── SAFE REPLY ─────────
+// ───────── LOG SYSTEM ─────────
 
-async function safeReply(i, data) {
-  if (i.replied || i.deferred) return i.followUp(data);
-  return i.reply(data);
+async function log(guild, data) {
+  const conf = getGuild(guild.id);
+  if (!conf.logChannel) return;
+
+  const ch = guild.channels.cache.get(conf.logChannel);
+  if (!ch) return;
+
+  ch.send({ embeds: [data] }).catch(() => {});
 }
+
+// ───────── SECURITY TRACKERS ─────────
+
+const joins = {};
+const spam = {};
+
+// ───────── ANTIRAID ─────────
+
+client.on("guildMemberAdd", async m => {
+  const g = getGuild(m.guild.id);
+  if (!g.antiraid) return;
+
+  joins[m.guild.id] ??= [];
+  joins[m.guild.id].push(Date.now());
+
+  joins[m.guild.id] =
+    joins[m.guild.id].filter(t => Date.now() - t < 10000);
+
+  if (joins[m.guild.id].length >= 5) {
+    await m.timeout(600000).catch(() => {});
+  }
+});
+
+// ───────── MESSAGE SECURITY ─────────
+
+client.on("messageCreate", async msg => {
+  if (!msg.guild || msg.author.bot) return;
+
+  const g = getGuild(msg.guild.id);
+  if (!g.antiraid) return;
+
+  if (g.whitelist.includes(msg.author.id)) return;
+
+  spam[msg.author.id] ??= [];
+  spam[msg.author.id].push(Date.now());
+
+  spam[msg.author.id] =
+    spam[msg.author.id].filter(t => Date.now() - t < 4000);
+
+  if (spam[msg.author.id].length >= 6)
+    await msg.member?.timeout(300000).catch(() => {});
+
+  if (g.linkBlock && /(https?:\/\/)/.test(msg.content)) {
+    await msg.delete().catch(() => {});
+    await msg.member?.timeout(300000).catch(() => {});
+  }
+});
+
+// ───────── ANTINUKE ─────────
+
+async function punish(guild, id) {
+  const g = getGuild(guild.id);
+  if (!g.antinuke) return;
+  if (g.whitelist.includes(id)) return;
+
+  const m = await guild.members.fetch(id).catch(() => null);
+  if (!m) return;
+
+  await m.timeout(600000).catch(() => {});
+}
+
+// ───────── AUDIT PROTECTION ─────────
+
+client.on("channelDelete", async ch => {
+  const logs = await ch.guild.fetchAuditLogs({
+    type: AuditLogEvent.ChannelDelete,
+    limit: 1
+  }).catch(() => null);
+
+  const entry = logs?.entries.first();
+  if (entry) punish(ch.guild, entry.executor.id);
+});
 
 // ───────── INTERACTIONS ─────────
 
 client.on("interactionCreate", async i => {
-  if (!i.isChatInputCommand() || !i.guild) return;
+  if (!i.isChatInputCommand()) return;
 
-  const guild = i.guild;
-  const member = await guild.members.fetch(i.user.id).catch(()=>null);
+  const g = i.guild;
+  const member = await g.members.fetch(i.user.id).catch(() => null);
+  if (!member) return;
 
-  if (!member)
-    return safeReply(i, { content:"❌ Member error", ephemeral:true });
+  served++;
 
-  try {
+  const reply = d =>
+    i.replied ? i.followUp(d) : i.reply(d);
 
-    if (i.commandName === "ping")
-      return safeReply(i, { embeds:[embed("🏓 Pong",0x2ecc71)] });
+  // ───────── HELP ─────────
+  if (i.commandName === "help")
+    return reply({ embeds: [embed("Commands", 0x3498db)] });
 
-    if (i.commandName === "help")
-      return safeReply(i, { embeds:[embed("Commands",0x3498db)] });
+  // ───────── LOG SET ─────────
+  if (i.commandName === "setlog") {
+    getGuild(g.id).logChannel = i.options.getChannel("channel").id;
+    saveConfig();
+    return reply({ embeds: [embed("Logs set", 0x2ecc71)] });
+  }
 
-    // PERM CHECK PER COMMAND
-    const perms = {
-      kick: PermissionsBitField.Flags.KickMembers,
-      ban: PermissionsBitField.Flags.BanMembers,
-      timeout: PermissionsBitField.Flags.ModerateMembers,
-      purge: PermissionsBitField.Flags.ManageMessages,
-      addrole: PermissionsBitField.Flags.ManageRoles,
-      setnick: PermissionsBitField.Flags.ManageNicknames
-    };
+  // ───────── WHITELIST ─────────
+  if (i.commandName === "whitelist") {
+    const sub = i.options.getSubcommand();
+    const user = i.options.getUser("user");
 
-    if (perms[i.commandName] &&
-        !member.permissions.has(perms[i.commandName]))
-      return safeReply(i, { content:"❌ No permission", ephemeral:true });
+    const conf = getGuild(g.id);
 
-    const targetUser = i.options.getUser("user");
+    if (sub === "add") conf.whitelist.push(user.id);
+    if (sub === "remove") conf.whitelist = conf.whitelist.filter(x => x !== user.id);
 
-    let target = null;
-    if (targetUser)
-      target = await guild.members.fetch(targetUser.id).catch(()=>null);
+    saveConfig();
+    return reply({ embeds: [embed("Whitelist updated", 0x3498db)] });
+  }
 
-    // HIERARCHY CHECK
-    const botMember = guild.members.me;
+  // ───────── ANTIRAID UI ─────────
+  if (i.commandName === "antiraid")
+    return reply({
+      content: "Anti-Raid Setup",
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId("raid_on").setLabel("Enable").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId("raid_off").setLabel("Disable").setStyle(ButtonStyle.Danger)
+        )
+      ],
+      ephemeral: true
+    });
 
-    if (target && botMember.roles.highest.position <= target.roles.highest.position)
-      return safeReply(i, { content:"❌ Role hierarchy", ephemeral:true });
+  // ───────── ANTINUKE UI ─────────
+  if (i.commandName === "antinuke")
+    return reply({
+      content: "Anti-Nuke Setup",
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId("nuke_on").setLabel("Enable").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId("nuke_off").setLabel("Disable").setStyle(ButtonStyle.Danger)
+        )
+      ],
+      ephemeral: true
+    });
 
-    // COMMANDS
+  // ───────── PERMS ─────────
+  if (!member.permissions.has(PermissionsBitField.Flags.ModerateMembers))
+    return reply({ content: "❌ No permission", ephemeral: true });
 
-    if (i.commandName === "kick") {
-      if (!target || !target.kickable)
-        return safeReply(i, { content:"❌ Can't kick", ephemeral:true });
+  const targetUser = i.options.getUser("user");
+  const target = targetUser
+    ? await g.members.fetch(targetUser.id).catch(() => null)
+    : null;
 
-      await target.kick();
-      return safeReply(i, { embeds:[embed("👢 Kicked",0xe67e22)] });
-    }
+  // ───────── MODERATION ─────────
 
-    if (i.commandName === "ban") {
-      if (!targetUser)
-        return safeReply(i, { content:"❌ Invalid user", ephemeral:true });
+  if (i.commandName === "kick") {
+    if (!target || !target.kickable)
+      return reply({ content: "❌ Can't kick", ephemeral: true });
 
-      await guild.members.ban(targetUser.id).catch(()=>{});
-      return safeReply(i, { embeds:[embed("🔨 Banned",0xe74c3c)] });
-    }
+    await target.kick();
+    return reply({ embeds: [embed("Kicked", 0xe67e22)] });
+  }
 
-    if (i.commandName === "timeout") {
-      const mins = i.options.getInteger("minutes");
+  if (i.commandName === "ban") {
+    await g.members.ban(targetUser.id).catch(() => {});
+    return reply({ embeds: [embed("Banned", 0xe74c3c)] });
+  }
 
-      if (!target || mins < 1 || mins > 40320)
-        return safeReply(i, { content:"❌ Invalid", ephemeral:true });
+  if (i.commandName === "timeout") {
+    const mins = i.options.getInteger("minutes");
 
-      await target.timeout(mins*60000).catch(()=>{});
-      return safeReply(i, { embeds:[embed("⏳ Timed Out",0xf1c40f)] });
-    }
+    if (!target || mins > 40320)
+      return reply({ content: "❌ Invalid", ephemeral: true });
 
-    if (i.commandName === "setnick") {
-      const nick = i.options.getString("nickname");
+    await target.timeout(mins * 60000);
+    return reply({ embeds: [embed("Timed Out", 0xf1c40f)] });
+  }
 
-      if (!target || !target.manageable)
-        return safeReply(i, { content:"❌ Can't edit", ephemeral:true });
+  if (i.commandName === "warn") {
+    const reason = i.options.getString("reason");
 
-      await target.setNickname(nick).catch(()=>{});
-      return safeReply(i, { embeds:[embed("✏️ Nick Updated",0x3498db)] });
-    }
+    warns[targetUser.id] ??= [];
+    warns[targetUser.id].push(reason);
+    saveWarns();
 
-    if (i.commandName === "addrole") {
-      const role = i.options.getRole("role");
+    return reply({ embeds: [embed("Warned", 0xf1c40f)] });
+  }
 
-      if (!target || !role || !role.editable)
-        return safeReply(i, { content:"❌ Can't add role", ephemeral:true });
+  if (i.commandName === "warnings") {
+    return reply({
+      embeds: [embed("Warnings", 0x3498db, [
+        { name: targetUser.tag, value: warns[targetUser.id]?.join("\n") || "None" }
+      ])]
+    });
+  }
 
-      await target.roles.add(role).catch(()=>{});
-      return safeReply(i, { embeds:[embed("➕ Role Added",0x2ecc71)] });
-    }
+  if (i.commandName === "purge") {
+    const amount = i.options.getInteger("amount");
 
-    if (i.commandName === "warn") {
-      const reason = i.options.getString("reason");
+    if (amount < 1 || amount > 100)
+      return reply({ content: "❌ 1-100", ephemeral: true });
 
-      warns[targetUser.id] ??= [];
-      warns[targetUser.id].push(reason);
-      saveWarns();
+    await i.channel.bulkDelete(amount, true).catch(() => {});
+    return reply({ embeds: [embed("Purged", 0xe67e22)], ephemeral: true });
+  }
 
-      return safeReply(i, { embeds:[embed("⚠️ Warned",0xf1c40f)] });
-    }
+  if (i.commandName === "addrole") {
+    const role = i.options.getRole("role");
 
-    if (i.commandName === "warnings") {
-      return safeReply(i, {
-        embeds:[embed("Warnings",0x3498db,[
-          {name:targetUser.tag,value:warns[targetUser.id]?.join("\n") || "None"}
-        ])]
-      });
-    }
+    if (!target || !role.editable)
+      return reply({ content: "❌ Can't add role", ephemeral: true });
 
-    if (i.commandName === "purge") {
-      const amount = i.options.getInteger("amount");
+    await target.roles.add(role).catch(() => {});
+    return reply({ embeds: [embed("Role added", 0x2ecc71)] });
+  }
 
-      if (!i.channel || i.channel.type !== ChannelType.GuildText)
-        return safeReply(i, { content:"❌ Not text channel", ephemeral:true });
+  if (i.commandName === "setnick") {
+    const nick = i.options.getString("nickname");
 
-      if (amount < 1 || amount > 100)
-        return safeReply(i, { content:"❌ 1-100", ephemeral:true });
+    if (!target || !target.manageable)
+      return reply({ content: "❌ Can't edit", ephemeral: true });
 
-      await i.channel.bulkDelete(amount, true).catch(()=>{});
-      return safeReply(i, { embeds:[embed("🧹 Purged",0xe67e22)], ephemeral:true });
-    }
+    await target.setNickname(nick).catch(() => {});
+    return reply({ embeds: [embed("Nick updated", 0x3498db)] });
+  }
 
-    if (i.commandName === "antiraid") {
-      getGuild(guild.id).antiraid = true;
-      saveConfig();
-      return safeReply(i, { embeds:[embed("🛡 Enabled",0x2ecc71)] });
-    }
+  if (i.commandName === "antiraid") {
+    getGuild(g.id).antiraid = true;
+    saveConfig();
+    return reply({ embeds: [embed("Anti-Raid enabled", 0x2ecc71)] });
+  }
 
-    if (i.commandName === "antinuke") {
-      getGuild(guild.id).antinuke = true;
-      saveConfig();
-      return safeReply(i, { embeds:[embed("💣 Enabled",0xe74c3c)] });
-    }
-
-  } catch (err) {
-    console.error(err);
-    safeReply(i, { content:"❌ Error", ephemeral:true });
+  if (i.commandName === "antinuke") {
+    getGuild(g.id).antinuke = true;
+    saveConfig();
+    return reply({ embeds: [embed("Anti-Nuke enabled", 0xe74c3c)] });
   }
 });
+
+// ───────── LOGIN ─────────
 
 client.login(process.env.TOKEN);
